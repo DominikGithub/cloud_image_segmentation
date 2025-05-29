@@ -9,14 +9,20 @@ from PIL import Image
 from PIL.TiffTags import TAGS
 
 # training data set samples
-img_cloud_train_lst= glob.glob("./dataset_clouds_from_lwir/training/clouds/*.tif")
-img_mask_train_lst = glob.glob("./dataset_clouds_from_lwir/training/lwir/*.tif")
-pprint(img_cloud_train_lst[:5])
+img_mask_train_lst  = glob.glob("./dataset_clouds_from_lwir/training/clouds/*.tif")
+img_cloud_train_lst = glob.glob("./dataset_clouds_from_lwir/training/lwir/*.tif")
+# pprint(img_cloud_train_lst[:5])
 
 # cloud image 
 img = Image.open(img_cloud_train_lst[0])
+
+img.show()
+np_img_arr = np.array(img)
+print('image shape: ', np_img_arr.shape)
+
+
 meta_dict = {TAGS[key] : img.tag[key] for key in img.tag_v2}
-pprint(meta_dict)
+# pprint(meta_dict)
 '''
 Sample TIF meta data 
 ------------------------------
@@ -37,9 +43,14 @@ Sample TIF meta data
 '''
 
 # segmentation mask
-img = Image.open(img_mask_train_lst[0])
-meta_dict = {TAGS[key] : img.tag[key] for key in img.tag_v2}
-pprint(meta_dict)
+mask_img = Image.open(img_mask_train_lst[0])
+
+mask_img.show()
+np_mask_arr = np.array(mask_img)
+print('mask shape: ', np_mask_arr.shape)
+
+meta_dict = {TAGS[key] : mask_img.tag[key] for key in mask_img.tag_v2}
+# pprint(meta_dict)
 '''
 Sample TIF meta data
 ---------------------------
@@ -61,13 +72,15 @@ Sample TIF meta data
 # TIF meta data field explanation -> https://exiv2.org/tags.html
 
 
-# visualize sample image
-'''
-$ sudo apt-get install libtiff-tools
-'''
-im = Image.open(img_mask_train_lst[0])
+# # visualize sample image
+# '''
+# $ sudo apt-get install libtiff-tools
+# '''
+# print('images: ', len(img_cloud_train_lst))
+# print('masks:  ', len(img_mask_train_lst))
+# im = Image.open(img_cloud_train_lst[0])
 # im.show()
 
-print(im.n_frames)
-na = np.array(im)
-print(len(na), len(na[0]), na)
+# na = np.array(im)
+# print('mask shape: ', na.shape)
+# print(na)
