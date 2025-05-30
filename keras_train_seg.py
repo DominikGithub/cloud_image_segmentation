@@ -1,81 +1,61 @@
 '''
-Transfer learning of VGG19 for segmentation of clouds in LWIR images.
+Transfer learning of VGG19 model for segmentation tasks of clouds in LWIR images.
 '''
 
+import os
 import glob
-from pathlib import Path
-from tqdm import tqdm
-import numpy as np
 import pandas as pd
 import keras
 from keras.layers import Input, Conv2D, UpSampling2D, Concatenate
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.applications import VGG19
 import tensorflow as tf
 import plotly.express as px
-from PIL import Image
 
-# load datasets
-train_dir = "./dataset_clouds_from_lwir/training/"
-val_dir = "./dataset_clouds_from_lwir/validation/"
+BATCH_SIZE = 12
 
-BATCH_SIZE = 16
-
-N_TEST_SAMPLES = 200                                             # TODO remove filter
-
-def create_dataset_from_image_path(path, set_name='dummy'):
+# load preprocessed datasets
+def parse_proto(example_proto):
     '''
-    Load TIFF images as TF datasets.
+    Parse single sample pair from TF sample format.
     '''
-    img_mask_lst  = glob.glob(path+"clouds/*.tif")
-    img_cloud_lst = glob.glob(path+"lwir/*.tif")
-
-    # cloud images
-    serialized_img_npy_path = f'./image_{set_name}.npy'
-    if Path(serialized_img_npy_path).is_file():
-        with open(serialized_img_npy_path, 'rb') as f:
-            cloud_arr = np.load(f)
-    else:
-        cloud_arr = np.ndarray((0, 1024, 1024, 3))
-        for img in tqdm(img_cloud_lst):   # [:N_TEST_SAMPLES]                                                  # TODO remove filter
-            image = keras.utils.load_img(img, target_size=(1024, 1024, 3))
-            input_arr = keras.utils.img_to_array(image)
-            input_arr = tf.keras.applications.vgg19.preprocess_input(input_arr)
-            input_arr = np.array([input_arr])
-            cloud_arr = np.concatenate((cloud_arr, input_arr), axis=0)
-        
-        # persist numpy array to file
-        with open(serialized_img_npy_path, 'wb') as f:
-            np.save(f, cloud_arr)
-        
-    # segmentation mask
-    serialized_mask_npy_path = f'./mask_{set_name}.npy'
-    if Path(serialized_mask_npy_path).is_file():
-        with open(serialized_mask_npy_path, 'rb') as f:
-            mask_arr = np.load(f)
-    else:
-        mask_arr = np.ndarray((0, 1024, 1024))
-        for mask in tqdm(img_mask_lst):   # [:N_TEST_SAMPLES]                                                 # TODO remove filter   
-            msk_arr = Image.open(mask)
-            msk_arr = np.array([msk_arr]) / 255.0
-            mask_arr = np.concatenate((mask_arr, msk_arr), axis=0)
-        
-        # persist numpy array to file
-        with open(serialized_mask_npy_path, 'wb') as f:
-            np.save(f, mask_arr)
-
-    print(path, cloud_arr.shape, mask_arr.shape)
-    features_dataset = tf.data.Dataset.from_tensor_slices(cloud_arr)
-    labels_dataset = tf.data.Dataset.from_tensor_slices(mask_arr)
-    return tf.data.Dataset.zip((features_dataset, labels_dataset))
-
-train_dataset_tf = create_dataset_from_image_path(train_dir, 'train').batch(BATCH_SIZE)
-val_dataset_tf = create_dataset_from_image_path(val_dir, 'val').batch(BATCH_SIZE)
+    feat_shp = [1024, 1024, 3]
+    targ_shp = [1024, 1024]
+    feature_dict = {
+        'X': tf.io.FixedLenSequenceFeature(feat_shp, tf.float32, allow_missing=True, default_value=[0.0]),
+        'y': tf.io.FixedLenSequenceFeature(targ_shp, tf.int64, allow_missing=True, default_value=[0]),
+    }
+    parsed_features = tf.io.parse_single_example(example_proto, feature_dict)
+    feat  = tf.cast(parsed_features['X'], tf.float32)
+    label = tf.cast(parsed_features['y'], tf.int64)
+    feat = tf.reshape(feat, feat_shp)
+    feat.set_shape(feat_shp)
+    
+    label = tf.reshape(label, targ_shp)
+    label.set_shape(targ_shp)
+    return feat, label
 
 
-exit(0)
+def load_tfrecords_set(set_name='dummy'):
+    '''
+    Load dataset from serialized TFRecord files.
+    '''
+    tfrecord_train_files = glob.glob(f'./tfdataset/{set_name}/*.tfrecords')
+    dataset_tf = tf.data.TFRecordDataset(tfrecord_train_files, compression_type='ZLIB', num_parallel_reads=os.cpu_count())
+    dataset_tf = dataset_tf.map(parse_proto, num_parallel_calls=tf.data.AUTOTUNE)
+    return dataset_tf
+
+train_dataset_tf = load_tfrecords_set('train').batch(BATCH_SIZE)
+val_dataset_tf = load_tfrecords_set('val').batch(BATCH_SIZE)
+
+print('Total # training dataset samples:', train_dataset_tf.cardinality().numpy())
+for x, y in train_dataset_tf.take(1):
+    print("Image shape:", x.shape)
+    print("Mask shape:", y.shape)
 
 
-# pretrained VGG19
+# define model
+# pretrained VGG feature extraction base model
 inp = Input(shape=(1024, 1024, 3))
 vgg_model = VGG19(weights='imagenet', include_top=False, input_tensor=inp)
 vgg_model.trainable = False
@@ -86,7 +66,7 @@ x = vgg_model(inp, training=False)
 x = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name='segmentation_head')(x)
 outputs = keras.layers.UpSampling2D(size=(32, 32), interpolation='bilinear')(x)
 
-
+# # add trainable upsampling layers to expected output size
 # # skip tensors
 # b1, b2 = vgg_model.get_layer("block1_pool").output, vgg_model.get_layer("block2_pool").output
 # b3, b4 = vgg_model.get_layer("block3_pool").output, vgg_model.get_layer("block4_pool").output
@@ -117,7 +97,8 @@ outputs = keras.layers.UpSampling2D(size=(32, 32), interpolation='bilinear')(x)
 seg_model = keras.models.Model(inp, outputs)
 
 
-def f1_score_segmentation(y_true, y_pred, threshold=0.5):
+# train model
+def f1_seg_score(y_true, y_pred, threshold=0.5):
     '''
     Flatten output for 4D image segmentation task.
     '''
@@ -139,11 +120,19 @@ seg_model.compile(optimizer=keras.optimizers.Adam(),
                 loss=keras.losses.BinaryCrossentropy(from_logits=False),
                 metrics=[
                         keras.metrics.BinaryIoU(target_class_ids=[0,1],threshold=0.5), 
-                        f1_score_segmentation
+                        f1_seg_score
                 ]
 )
 print(seg_model.summary())
-try: history_fine = seg_model.fit(train_dataset_tf, validation_data=val_dataset_tf, epochs=4)
+
+es_cb = EarlyStopping(monitor='val_f1_seg_score', patience=20, verbose=0, mode='max')
+save_cb = ModelCheckpoint('./model.keras', save_best_only=True, monitor='val_f1_seg_score', mode='max')
+lr_cb = ReduceLROnPlateau(monitor='val_f1_seg_score', factor=0.1, patience=5, verbose=1, epsilon=1e-4, mode='max')
+
+try: history_fine = seg_model.fit(train_dataset_tf, 
+                                    validation_data=val_dataset_tf, 
+                                    callbacks=[es_cb, save_cb, lr_cb],
+                                    epochs=150)
 except KeyboardInterrupt: print("\r\nTraining interrupted")
 
 seg_model.save("./segmentation_model.keras")
@@ -151,28 +140,26 @@ seg_model.save("./segmentation_model.keras")
 
 # evaluation
 loss, accuracy, fscore = seg_model.evaluate(val_dataset_tf)
-print('Test binary_io_u/F1 :', accuracy, fscore)
+print('Test binary_io_u & F1 :', accuracy, fscore)
 
-print(history_fine.history)
 
+# plot evaluation 
 acc = history_fine.history['binary_io_u']
-f1 = history_fine.history['f1_score_segmentation']
+f1 = history_fine.history['f1_seg_score']
 val_acc = history_fine.history['val_binary_io_u']
-val_f1 = history_fine.history['val_f1_score_segmentation']
+val_f1 = history_fine.history['val_f1_seg_score']
 loss = history_fine.history['loss']
 val_loss = history_fine.history['val_loss']
 
 
-
-# plot evaluation 
 df = pd.DataFrame(dict(
     acc = history_fine.history['binary_io_u'],
-    f1 = history_fine.history['f1_score_segmentation'],
+    f1 = history_fine.history['f1_seg_score'],
     val_acc = history_fine.history['val_binary_io_u'],
-    val_f1 = history_fine.history['val_f1_score_segmentation'],
+    val_f1 = history_fine.history['val_f1_seg_score'],
     loss = history_fine.history['loss'],
     val_loss = history_fine.history['val_loss']
 ))
 fig = px.line(df, title="Accuracy and Loss over Epochs", markers=True)
-fig.show()
+# fig.show()
 fig.write_html("./metrics_loss.html")
