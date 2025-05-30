@@ -4,12 +4,13 @@ Convert raw image data into training TF dataset.
 
 import multiprocessing as mp
 from pprint import pprint
-import keras
 import glob
 from tqdm import tqdm
 import tensorflow as tf
 import numpy as np
 from PIL import Image
+import plotly.express as px
+import numpy as np
 
 # load datasets
 train_dir = "./dataset_clouds_from_lwir/training/"
@@ -36,13 +37,16 @@ def serialize_batch_pair_from_file_list(img_cloud_lst, img_mask_lst, batch_idx, 
     msk_id_lst = [p.split('/')[-1].split('.')[0] for p in img_mask_lst]
     for idx, id in enumerate(img_id_lst):
         assert msk_id_lst[idx] == id, f'{idx=} {id=}'
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
 
     # cloud images
     cloud_arr = np.ndarray((0, 1024, 1024, 3))
     for img in tqdm(img_cloud_lst):
-        image = keras.utils.load_img(img, target_size=(1024, 1024, 3))
-        input_arr = keras.utils.img_to_array(image)
+        image = Image.open(img)
+        input_arr = np.array(image) / 255.0
+        # turn grayscale into VGG 3-channel image
+        input_arr = np.stack((input_arr,)*3, axis=-1)
+        # apply VGG specific preparation
         input_arr = tf.keras.applications.vgg19.preprocess_input(input_arr)
         input_arr = np.array([input_arr])
         cloud_arr = np.concatenate((cloud_arr, input_arr), axis=0)
@@ -57,16 +61,13 @@ def serialize_batch_pair_from_file_list(img_cloud_lst, img_mask_lst, batch_idx, 
     ptfd = f'./tfdataset/{set_name}/{batch_idx}.tfrecords'
     with tf.io.TFRecordWriter(ptfd, options=tf.io.TFRecordOptions(compression_type='ZLIB', compression_level=9)) as writer:
         for x, y in tqdm(zip(cloud_arr, mask_arr)):
-
-            # NOTE reshape again needed?
-            x = x.reshape((1024, 1024, 3))
+            x = x.reshape((1024, 1024, 3))              # TODO reshape again?
             # cast numpy default precicision
             x = x.astype(np.float32)
             y = y.astype(np.int64)
 
             serialized = _serialize_sample_as_tfrecord(x, y)
             writer.write(serialized)
-
 
 
 def _chunks(lst, s):
