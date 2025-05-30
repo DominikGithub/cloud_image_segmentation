@@ -7,19 +7,20 @@ import json
 from pathlib import Path
 from tqdm import tqdm
 import  multiprocessing as mp
+import time
 import numpy as np
 import pandas as pd
 import keras
 from keras.layers import Input, Conv2D, UpSampling2D, Concatenate, BatchNormalization
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, LambdaCallback, TensorBoard
 from keras.applications import VGG19
-# import tensorflow as tf
 import plotly.express as px
 import plotly.graph_objects as go
 from PIL import Image
 
 from utils import *
 
+TIME_SEC = int(time.time())
 BATCH_SIZE = 12
 
 # load preprocessed datasets
@@ -101,7 +102,7 @@ seg_model = keras.models.Model(inp, outputs)
 
 
 # train model
-seg_model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.002),                 # TODO 0.001
+seg_model.compile(optimizer=keras.optimizers.Adam(learning_rate=2e-3),
                 loss=keras.losses.BinaryCrossentropy(from_logits=False),
                 metrics=[
                         keras.metrics.BinaryIoU(target_class_ids=[0,1],threshold=0.5),
@@ -111,10 +112,10 @@ seg_model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.002),         
 print(seg_model.summary())
 
 es_cb = EarlyStopping(monitor='val_f1_seg_score', patience=10, verbose=0, mode='max')
-save_cb = ModelCheckpoint('./model.keras', save_best_only=True, monitor='val_f1_seg_score', mode='max')
-lr_cb = ReduceLROnPlateau(monitor='val_f1_seg_score', factor=0.1, patience=5, verbose=1, epsilon=1e-4, mode='max')
-json_log = open('./loss_log.json', mode='wt', buffering=1)
-log_cb = keras.callbacks.LambdaCallback(
+save_cb = ModelCheckpoint(f'./model_{TIME_SEC}.keras', save_best_only=True, monitor='val_f1_seg_score', mode='max')
+lr_cb = ReduceLROnPlateau(monitor='val_f1_seg_score', factor=0.1, patience=5, verbose=1, min_delta=1e-4, mode='max')
+json_log = open(f'./log_{TIME_SEC}.json', mode='wt', buffering=1)
+log_cb = LambdaCallback(
     on_epoch_end=lambda epoch, logs: json_log.write(json.dumps({'epoch': epoch, 
                                                                 'loss': logs['loss'],
                                                                 'val_loss': logs['val_loss'], 
@@ -123,13 +124,33 @@ log_cb = keras.callbacks.LambdaCallback(
                                                                 'f1_seg_score': logs['f1_seg_score'], 
                                                                 'val_f1_seg_score': logs['val_f1_seg_score']})),
 )
+class FineTuneCallback(keras.callbacks.Callback):
+    def __init__(self, base_model, fine_tune_epoch=10, new_lr=1e-5):
+        super().__init__()
+        self.base_model = base_model
+        self.fine_tune_epoch = fine_tune_epoch
+        self.new_lr = new_lr
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch == self.fine_tune_epoch:
+            print(f"\n[INFO] Unfreezing base model for fine-tuning at epoch {epoch}")
+            self.base_model.trainable = True
+            # Recompile with lower LR
+            keras.backend.set_value(self.model.optimizer.lr, self.new_lr)
+            self.model.compile(
+                optimizer=self.model.optimizer,
+                loss=self.model.loss,
+                metrics=self.model.metrics
+            )
+fine_tune_cb = FineTuneCallback(seg_model, fine_tune_epoch=10, new_lr=1e-5)
+
 try: history_fine = seg_model.fit(train_dataset_tf, 
                                     validation_data=val_dataset_tf, 
-                                    callbacks=[es_cb, save_cb, lr_cb, log_cb],
-                                    epochs=50)
+                                    callbacks=[es_cb, save_cb, lr_cb, log_cb, fine_tune_cb],
+                                    epochs=150)
 except KeyboardInterrupt: print("\r\nTraining interrupted")
 
-seg_model.save("./segmentation_model.keras")
+seg_model.save(f"./segmentation_model_{TIME_SEC}.keras")
 
 
 # evaluation
@@ -158,4 +179,4 @@ fig = px.line(df, title="Accuracy and Loss over Epochs", markers=True)
 fig.add_trace(go.Scatter(x=[len(val_loss)+1], y=[fscore], name="Eval F1"))
 fig.add_trace(go.Scatter(x=[len(val_loss)+1], y=[accuracy], name="Eval BIoU"))
 # fig.show()
-fig.write_html("./metrics_loss.html")
+fig.write_html(f"./metrics_loss_{TIME_SEC}.html")

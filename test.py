@@ -23,39 +23,9 @@ from utils import *
 
 BATCH_SIZE = 12
 
+TIME_SEC = 0                # TODO set to load the right model
 
 # load dataset
-def parse_proto(example_proto):
-    '''
-    Parse single sample pair from TF sample format.
-    '''
-    feat_shp = [1024, 1024, 3]
-    targ_shp = [1024, 1024]
-    feature_dict = {
-        'X': tf.io.FixedLenSequenceFeature(feat_shp, tf.float32, allow_missing=True, default_value=[0.0]),
-        'y': tf.io.FixedLenSequenceFeature(targ_shp, tf.int64, allow_missing=True, default_value=[0]),
-    }
-    parsed_features = tf.io.parse_single_example(example_proto, feature_dict)
-    feat  = tf.cast(parsed_features['X'], tf.float32)
-    label = tf.cast(parsed_features['y'], tf.int64)
-    feat = tf.reshape(feat, feat_shp)
-    feat.set_shape(feat_shp)
-    
-    label = tf.reshape(label, targ_shp)
-    label.set_shape(targ_shp)
-    return feat, label
-
-
-def load_tfrecords_set(set_name='dummy'):
-    '''
-    Load dataset from serialized TFRecord files.
-    '''
-    tfrecord_train_files = glob.glob(f'./tfdataset/{set_name}/*.tfrecords')
-    dataset_tf = tf.data.TFRecordDataset(tfrecord_train_files, compression_type='ZLIB', num_parallel_reads=os.cpu_count())
-    dataset_tf = dataset_tf.map(parse_proto, num_parallel_calls=tf.data.AUTOTUNE)
-    return dataset_tf
-
-
 val_dataset_tf = load_tfrecords_set('val').batch(BATCH_SIZE)
 for x, y in val_dataset_tf.take(1):
     print("Image shape:", x.shape)
@@ -66,7 +36,13 @@ for x, y in val_dataset_tf.take(1):
 seg_model = keras.saving.load_model("model.keras", custom_objects={'f1_seg_score': f1_seg_score})
 seg_model.compile()
 
-# make test prediction
+
+test_time_path = f'./tests/{TIME_SEC}'
+if not os.path.exists(test_time_path):
+    os.makedirs(test_time_path)
+
+
+# make test prediction and plot
 for x, y_true in val_dataset_tf.take(1):
     eval_seg_mask_lst = seg_model.predict(x)
     # plot file per test sample
@@ -98,5 +74,5 @@ for x, y_true in val_dataset_tf.take(1):
                     showarrow=False, font=dict(size=20)),
             ]
         )
-        eval_fig.write_html(f'./tests/eval_mask_{i}.html')
-        eval_fig.write_image(f"./tests/eval_mask_{i}.png")
+        eval_fig.write_html(f'{test_time_path}/eval_mask_{i}.html')
+        eval_fig.write_image(f"{test_time_path}/eval_mask_{i}.png")
