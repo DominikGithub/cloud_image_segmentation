@@ -33,14 +33,13 @@ for x, y in val_dataset_tf.take(1):
 
 
 # load trained model
-seg_model = keras.saving.load_model("model.keras", custom_objects={'f1_seg_score': f1_seg_score})
+seg_model = keras.saving.load_model(f"model_{TIME_SEC}.keras", custom_objects={'f1_seg_score': f1_seg_score})
 seg_model.compile()
 
 
 test_time_path = f'./tests/{TIME_SEC}'
 if not os.path.exists(test_time_path):
     os.makedirs(test_time_path)
-
 
 # make test prediction and plot
 for x, y_true in val_dataset_tf.take(1):

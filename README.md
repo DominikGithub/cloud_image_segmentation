@@ -1,11 +1,11 @@
 # LWIR cloud image segmentation model
 
-Segment clouds in satellite infrared single channel images
+Segment clouds in satellite infrared single channel images.
 
-## General method 
-Supervised 
+## Approach 
+Supervised training of a model to learn the segmentation mask as a target labels (Y) from the satellite images (X).
 
-Transfer-learning of VGG19 model for feature extraction and an added pixel wise classification layer for instance segmentation.
+Transfer-learning of VGG19 base model for feature extraction and a pixel wise classification layer on top.
 
 
 ## Data set 
