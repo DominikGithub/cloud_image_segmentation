@@ -1,5 +1,5 @@
 '''
-Convert raw image data into training TF dataset.
+Convert raw image data into batched TF datasets.
 '''
 
 import multiprocessing as mp
@@ -10,15 +10,13 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import plotly.express as px
-import numpy as np
 
-# load datasets
 train_dir = "./dataset_clouds_from_lwir/training/"
 val_dir = "./dataset_clouds_from_lwir/validation/"
 
 def _serialize_sample_as_tfrecord(X, y):
     '''
-    
+    Serialize single TF sample pair of image and mask.
     '''
     feature_dict = {
         'X': tf.train.Feature(float_list=tf.train.FloatList(value=X.flatten())),
@@ -78,18 +76,17 @@ def _chunks(lst, s):
         yield lst[i:i + s]
 
 
-def serialize_batches(path, set_name):
+def serialize_batches(path, set_name, BATCH_SIZE=100):
     '''
     Parallel batch serialization.
     '''
     img_cloud_lst = glob.glob(path+"lwir/*.tif")
     img_mask_lst  = glob.glob(path+"clouds/*.tif")
     
-    BATCH_SIZE = 100
     batches = list(_chunks(img_cloud_lst, BATCH_SIZE))
 
     tup_lst = [(b, img_mask_lst[i*BATCH_SIZE:i*BATCH_SIZE+BATCH_SIZE], i, set_name) for i, b in enumerate(batches)]
-    with mp.Pool(6) as p:
+    with mp.Pool() as p:
         p.starmap(serialize_batch_pair_from_file_list, tup_lst)
 
 serialize_batches(train_dir, 'train')
