@@ -1,0 +1,26 @@
+[project]
+name = "torch-hf-mit-b0"
+version = "0.1.0"
+description = "torch hf nvidia mit b0 segmentation model transfer learning"
+authors = [
+    {name = "Dominik Irimi",email = "dominik.irimi@protonmail.ch"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "torch (>=2.7.0,<3.0.0)",
+    "pandas (>=2.2.3,<3.0.0)",
+    "numpy (>=2.2.6,<3.0.0)",
+    "plotly (>=6.1.2,<7.0.0)",
+    "torch-vision (>=0.1.6.dev0,<0.2.0)",
+    "albumentations (>=2.0.8,<3.0.0)",
+    "tqdm (>=4.67.1,<5.0.0)",
+    "rasterio (>=1.4.3,<2.0.0)",
+    "transformers (>=4.52.4,<5.0.0)",
+    "torchvision (>=0.22.0,<0.23.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
