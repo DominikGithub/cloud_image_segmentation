@@ -1,5 +1,5 @@
 /tests/*.html
 /tests/*.png
 
-/tensorflow/tests/*
-/tensorflow/tfdataset/*
+/tensorflow_vgg/tests/*
+/tensorflow_vgg/tfdataset/*
