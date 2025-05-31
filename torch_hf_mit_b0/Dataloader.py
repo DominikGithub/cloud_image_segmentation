@@ -28,7 +28,8 @@ class CloudSegDataloader(data.Dataset):
         img = Image.open(img_path).convert('F')
         img_np = np.array(img, dtype=np.float32) / 255.0
         img_np = np.stack([img_np]*3, axis=-1)
-        img_resized = Image.fromarray((img_np * 255).astype(np.uint8)).resize((256, 256), resample=Image.BILINEAR)
+        # img_resized = Image.fromarray((img_np * 255).astype(np.uint8)).resize((256, 256), resample=Image.BILINEAR)
+        img_resized = img_np
         img_resized_np = np.array(img_resized, dtype=np.float32) / 255.0
 
         enc = self.preprocessor(images=img_resized_np, return_tensors="pt")
@@ -36,9 +37,9 @@ class CloudSegDataloader(data.Dataset):
 
         # Mask downsampling 64x64
         mask = Image.open(mask_path)
-        mask = mask.resize((64, 64), resample=Image.NEAREST)
+        # mask = mask.resize((64, 64), resample=Image.NEAREST)
         mask_np = np.array(mask, dtype=np.float32) / 255.0
-        mask_torch_tens = torch.from_numpy(mask_np).long().unsqueeze(0)  # (1, 64, 64)
+        mask_torch_tens = torch.from_numpy(mask_np).float().unsqueeze(0)
         return {
             "pixel_values": pixel,
             "labels": mask_torch_tens
