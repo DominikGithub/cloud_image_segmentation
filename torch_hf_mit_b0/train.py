@@ -97,40 +97,10 @@ class SegformerWithUpsample(torch.nn.Module):
 model = SegformerWithUpsample(base_model)
 
 # train model
-# class BinaryIoULoss(nn.Module):
-#     def __init__(self, eps=1e-6):
-#         super().__init__()
-#         self.eps = eps
-
-#     def forward(self, logits, targets):
-#         probs = torch.sigmoid(logits)
-#         preds = (probs > 0.5).float()
-#         targets = targets.float()
-
-#         intersection = (preds * targets).sum(dim=(1, 2, 3))
-#         union = preds.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3)) - intersection
-
-#         iou = (intersection + self.eps) / (union + self.eps)
-#         loss = 1.0 - iou  # IoU loss = 1 - IoU score
-#         return loss.mean()
-
-# class BCEAndIoULoss(nn.Module):
-#     def __init__(self, alpha=0.5, pos_weight=4.0):
-#         super().__init__()
-#         self.bce = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]))
-#         self.iou = BinaryIoULoss()
-#         self.alpha = alpha
-
-#     def forward(self, logits, targets):
-#         return self.alpha * self.bce(logits, targets.float()) + (1 - self.alpha) * self.iou(logits, targets)
-
-
-
 class SegmentationTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.criterion = nn.BCEWithLogitsLoss()
-        # self.criterion = BCEAndIoULoss()
 
     def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
         pixel_values = inputs["pixel_values"]
@@ -161,14 +131,24 @@ def compute_metrics(eval_pred, threshold=0.5):
     iou = tp / (tp + fp + fn + 1e-6)
     return {
         'acc': accuracy_score(labels.flatten(), preds.flatten()),
-        'f1': f1_score(labels.flatten(), preds.flatten(), average="weighted"), # weighted micro
+        'f1': f1_score(labels.flatten(), preds.flatten(), average="micro"), # weighted micro
         "b_iou": iou,
     }
 
 
-class LogCallback(TrainerCallback):
+class LogTerminalCb(TrainerCallback):
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
         print("Validation set:", metrics)
+
+
+class FileLoggerCb(TrainerCallback):
+    def __init__(self, filename=f"./metrics_{TIME_SEC}.log"):
+        self.filename = filename
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is not None:
+            with open(self.filename, "a") as f:
+                f.write(f"Epoch {state.epoch}: {logs}\n")
 
 
 def train_model():
@@ -176,11 +156,11 @@ def train_model():
     Train the model
     '''
     training_args = TrainingArguments(
-        output_dir="./outputs/",
+        output_dir=f"./outputs/{TIME_SEC}/",
         learning_rate=2e-5,
         per_device_train_batch_size=BATCH_SIZE,
         per_device_eval_batch_size=BATCH_SIZE,
-        num_train_epochs=1,
+        num_train_epochs=20,
         # logging
         # logging_dir='./outputs/pytorch_logs/',                  # NOTE <- not working
         logging_strategy="epoch",
@@ -201,7 +181,9 @@ def train_model():
         train_dataset=train_ds,
         eval_dataset=val_ds,
         compute_metrics=compute_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=10), LogCallback()],
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=10), 
+                    LogTerminalCb(), 
+                    FileLoggerCb()],
     )
     trainer.train()
 
