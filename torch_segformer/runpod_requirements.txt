@@ -4,6 +4,6 @@ scikit-learn
 transformers
 transformers[torch]
 torchvision
-
+pip install --upgrade kaleido
 
 pip install -u mlflow

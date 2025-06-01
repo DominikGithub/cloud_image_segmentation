@@ -7,14 +7,23 @@ from train import SegformerWithUpsample
 
 import os
 import numpy as np
+from sklearn.metrics import accuracy_score, f1_score
 from transformers import SegformerForSemanticSegmentation, SegformerFeatureExtractor
+from transformers.modeling_outputs import SemanticSegmenterOutput
+from transformers import Trainer, TrainingArguments, EarlyStoppingCallback, TrainerCallback
+from visualization import visualize_dataset_samples
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
+import torch.nn as nn
 import torch
+from tqdm import tqdm
 import plotly.express as px
 from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+from PIL import Image
+import time
 
-TIME_SEC = 0                 # NOTE set according to training scripts model timestamp to be loaded
-EVAL_BATCH_SIZE = 10
+TIME_SEC = 1748806411                 # NOTE set according to training scripts model timestamp to be loaded
 
 
 def plot_testset():
@@ -29,6 +38,7 @@ def plot_testset():
 
     # load data
     val_ds = CloudSegDataloader('validation', preprocessor)
+    EVAL_BATCH_SIZE = len(val_ds)
 
     # load model
     file_path = f'./segformer_cloud_{TIME_SEC}.pth'
@@ -64,7 +74,7 @@ def plot_testset():
         preds_np_lst = preds.detach().cpu().numpy()
 
     # plot prediction vs true mask
-    for i in range(len(preds_np_lst)):
+    for i in tqdm(range(len(preds_np_lst))):
         eval_fig = make_subplots(rows=2, cols=1,  vertical_spacing=0.05, subplot_titles=['Prediction', 'Ground truth'])
         # Prediction 
         pred_fig = px.imshow(preds_np_lst[i, 0, :, :], color_continuous_scale='gray', binary_string=False)
