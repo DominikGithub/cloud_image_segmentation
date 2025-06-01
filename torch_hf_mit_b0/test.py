@@ -7,20 +7,11 @@ from train import SegformerWithUpsample
 
 import os
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score
 from transformers import SegformerForSemanticSegmentation, SegformerFeatureExtractor
-from transformers.modeling_outputs import SemanticSegmenterOutput
-from transformers import Trainer, TrainingArguments, EarlyStoppingCallback, TrainerCallback
-from visualization import visualize_dataset_samples
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
-import torch.nn as nn
 import torch
 import plotly.express as px
 from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-from PIL import Image
-import time
 
 TIME_SEC = 0                 # NOTE set according to training scripts model timestamp to be loaded
 EVAL_BATCH_SIZE = 10

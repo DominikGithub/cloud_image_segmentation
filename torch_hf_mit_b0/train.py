@@ -214,6 +214,5 @@ def train_model():
     torch.save(model.state_dict(), file_path)
 
 
-
 if __name__ == "__main__":
     train_model()
