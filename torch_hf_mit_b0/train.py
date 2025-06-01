@@ -1,7 +1,12 @@
 '''
 Pytorch Segformer model fine tuning for cloud segmentation task.
 
-MlFlow server: $ mlflow server --host 0.0.0.0 --port 8080
+MlFlow server: 
+$ export MLFLOW_FLASK_SERVER_SECRET_KEY="secret"
+$ export MLFLOW_TRACKING_USERNAME="secret"
+$ export MLFLOW_TRACKING_PASSWORD="secret"
+
+$ mlflow server --host 0.0.0.0 --port 8080 [--app-name basic-auth]
 '''
 
 from Dataloader import CloudSegDataloader
@@ -17,9 +22,13 @@ import torch.nn as nn
 import torch
 import time
 import csv
+import os
 import mlflow
 
+# MLflow experiment tacking
 mlflow.set_tracking_uri(uri="http://127.0.0.1:8080")
+mlflow.config.enable_async_logging(True)  
+os.environ["MLFLOW_ASYNC_LOGGING_BUFFERING_SECONDS"] = "2"
 
 
 TIME_SEC = int(time.time())
@@ -37,7 +46,8 @@ preprocessor.do_normalize = True
 # load data
 train_ds = CloudSegDataloader('training', preprocessor)
 val_ds = CloudSegDataloader('validation', preprocessor)
-print(len(train_ds), len(val_ds))
+n_steps_per_epoch = len(train_ds)
+print('# batches (train, val) set:', n_steps_per_epoch, len(val_ds))
 
 # ## plot samples to validate data loading
 # visualize_dataset_samples(val_ds, 2)
@@ -56,7 +66,7 @@ print(len(train_ds), len(val_ds))
 # Load base model
 base_model = SegformerForSemanticSegmentation.from_pretrained(
     "nvidia/segformer-b0-finetuned-ade-512-512",
-    num_labels=1,                                                       # TODO classes
+    num_labels=1,                                                                               # TODO classes
     ignore_mismatched_sizes=True,
 )
 # freeze base model
@@ -149,7 +159,8 @@ class LogMlFlowAndTerminalCb(TrainerCallback):
         # console
         print("Validation set:", metrics)
         # log to MlFlow 
-        mlflow.log_params(metrics)
+        if control.should_log:
+            mlflow.log_params(metrics)
 
 
 class FileLoggerCb(TrainerCallback):
@@ -161,7 +172,8 @@ class FileLoggerCb(TrainerCallback):
             # csv
             with open(self.filename+'.csv', 'a') as fd:
                 w = csv.DictWriter(fd, logs.keys())
-                w.writeheader()
+                if logs['epoch'] == 1.0:
+                    w.writeheader()
                 w.writerow(logs)
             # broken json
             with open(self.filename+'.log', "a") as f:
@@ -181,12 +193,12 @@ def train_model():
             per_device_eval_batch_size=BATCH_SIZE,
             num_train_epochs=20,
             logging_strategy="epoch",
-            logging_steps=1_000_00, # disable
+            logging_steps=n_steps_per_epoch,
             # validation
-            eval_steps=1000,
+            eval_steps=n_steps_per_epoch,
             eval_strategy="epoch",
             save_strategy="best",
-            save_steps=500,
+            save_steps=n_steps_per_epoch,
             load_best_model_at_end=True,  
             metric_for_best_model="f1",  # iou, f1
             greater_is_better=True,
@@ -203,7 +215,6 @@ def train_model():
                         FileLoggerCb()],
         )
         trainer.train()
-
 
         # final evaluation metrics
         metrics = trainer.evaluate()
