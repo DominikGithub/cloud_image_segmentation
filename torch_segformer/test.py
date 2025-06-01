@@ -93,6 +93,7 @@ def plot_testset():
             coloraxis=dict(colorscale='gray'),
             coloraxis2=dict(colorscale='gray'),
             coloraxis_showscale=False,
+            coloraxis2_showscale=False,
             width=1000,
             height=1600,
             annotations=[
