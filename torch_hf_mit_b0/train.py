@@ -1,5 +1,7 @@
 '''
 Pytorch Segformer model fine tuning for cloud segmentation task.
+
+MlFlow server: $ mlflow server --host 0.0.0.0 --port 8080
 '''
 
 from Dataloader import CloudSegDataloader
@@ -14,9 +16,16 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch
 import time
+import mlflow
+
+mlflow.set_tracking_uri(uri="http://127.0.0.1:8080")
+
 
 TIME_SEC = int(time.time())
 BATCH_SIZE = 20
+
+# configure tracking 
+mlflow.set_experiment(f"Experiment {TIME_SEC}")
 
 # hf segformer data preprocessor
 preprocessor = SegformerFeatureExtractor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512", use_fast=False)
@@ -33,7 +42,7 @@ print(len(train_ds), len(val_ds))
 # visualize_dataset_samples(val_ds, 2)
 # exit(0)
 
-# ## check dataloader data shapes
+# ## validate dataloader sample shape
 # from torch.utils.data import DataLoader
 # dl = DataLoader(train_ds, batch_size=2)
 # batch = next(iter(dl))
@@ -46,7 +55,7 @@ print(len(train_ds), len(val_ds))
 # Load base model
 base_model = SegformerForSemanticSegmentation.from_pretrained(
     "nvidia/segformer-b0-finetuned-ade-512-512",
-    num_labels=1,
+    num_labels=1,                                                       # TODO classes
     ignore_mismatched_sizes=True,
 )
 # freeze base model
@@ -76,15 +85,13 @@ class SegformerWithUpsample(torch.nn.Module):
             align_corners=False,
         )
 
-        # loss recalculation (for BCE/CE in 1024x1024)
+        # loss
         if labels is not None:
             # labels shape (B,H,W) → (B,C,H,W)
-            if labels.ndim == 3:
-                labels_for_loss = labels.unsqueeze(1).float()
-            else:
-                labels_for_loss = labels.float()
+            if labels.ndim == 3: labels_for_loss = labels.unsqueeze(1).float()
+            else:                labels_for_loss = labels.float()
             loss = F.binary_cross_entropy_with_logits(logits, labels_for_loss)
-        else:
+        else: 
             loss = None
         return SemanticSegmenterOutput(
             loss      = loss,
@@ -136,61 +143,71 @@ def compute_metrics(eval_pred, threshold=0.5):
     }
 
 
-class LogTerminalCb(TrainerCallback):
+class LogMlFlowAndTerminalCb(TrainerCallback):
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        # console
         print("Validation set:", metrics)
+        # log to MlFlow 
+        mlflow.log_params(metrics)
 
 
 class FileLoggerCb(TrainerCallback):
-    def __init__(self, filename=f"./metrics_{TIME_SEC}.log"):
+    def __init__(self, filename=f"./metrics_{TIME_SEC}"):
         self.filename = filename
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         if logs is not None:
-            with open(self.filename, "a") as f:
-                f.write(f"Epoch {state.epoch}: {logs}\n")
+            # csv
+            with open(self.filename+'.csv', 'a') as fd:
+                w = csv.DictWriter(fd, logs.keys())
+                w.writeheader()
+                w.writerow(logs)
+                #fd.write(logs)
+            # broken json list
+            with open(self.filename+'.log', "a") as f:
+                f.write("{logs}\n")
 
 
 def train_model():
     '''
     Train the model
     '''
-    training_args = TrainingArguments(
-        output_dir=f"./outputs/{TIME_SEC}/",
-        learning_rate=2e-5,
-        per_device_train_batch_size=BATCH_SIZE,
-        per_device_eval_batch_size=BATCH_SIZE,
-        num_train_epochs=20,
-        # logging
-        # logging_dir='./outputs/pytorch_logs/',                  # NOTE <- not working
-        logging_strategy="epoch",
-        logging_steps=1_000_00,
-        # validation
-        eval_steps=1000,
-        eval_strategy="epoch",
-        save_strategy="best",
-        save_steps=500,
-        load_best_model_at_end=True,  
-        metric_for_best_model="f1",  # iou, f1
-        greater_is_better=True,
+    with mlflow.start_run():
 
-    )
-    trainer = SegmentationTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_ds,
-        eval_dataset=val_ds,
-        compute_metrics=compute_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=10), 
-                    LogTerminalCb(), 
-                    FileLoggerCb()],
-    )
-    trainer.train()
+        training_args = TrainingArguments(
+            output_dir=f"./outputs/{TIME_SEC}/",
+            learning_rate=2e-5,
+            per_device_train_batch_size=BATCH_SIZE,
+            per_device_eval_batch_size=BATCH_SIZE,
+            num_train_epochs=20,
+            logging_strategy="epoch",
+            logging_steps=1_000_00, # disable
+            # validation
+            eval_steps=1000,
+            eval_strategy="epoch",
+            save_strategy="best",
+            save_steps=500,
+            load_best_model_at_end=True,  
+            metric_for_best_model="f1",  # iou, f1
+            greater_is_better=True,
+
+        )
+        trainer = SegmentationTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_ds,
+            eval_dataset=val_ds,
+            compute_metrics=compute_metrics,
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=10), 
+                        LogMlFlowAndTerminalCb(), 
+                        FileLoggerCb()],
+        )
+        trainer.train()
 
 
-    # final evaluation metrics
-    metrics = trainer.evaluate()
-    print('Final validation metric:', metrics)
+        # final evaluation metrics
+        metrics = trainer.evaluate()
+        print('Final validation metric:', metrics)
 
     # Save model
     file_path = f'./segformer_cloud_{TIME_SEC}.pth'
