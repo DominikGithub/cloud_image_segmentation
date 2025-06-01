@@ -3,3 +3,5 @@
 
 /tensorflow_vgg/tests/*
 /tensorflow_vgg/tfdataset/*
+
+*.pth
