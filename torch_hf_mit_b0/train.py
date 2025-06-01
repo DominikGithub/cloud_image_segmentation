@@ -13,7 +13,9 @@ from visualization import visualize_dataset_samples
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
+import time
 
+TIME_SEC = int(time.time())
 BATCH_SIZE = 20
 
 # hf segformer data preprocessor
@@ -48,7 +50,7 @@ base_model = SegformerForSemanticSegmentation.from_pretrained(
     ignore_mismatched_sizes=True,
 )
 # freeze base model
-for param in base_model.segformer.parameters():
+for param in base_model.segformer.parameters(): # encoder
     param.requires_grad = False
 # for param in base_model.decode_head.parameters():
 #     param.requires_grad = False
@@ -95,10 +97,40 @@ class SegformerWithUpsample(torch.nn.Module):
 model = SegformerWithUpsample(base_model)
 
 # train model
+# class BinaryIoULoss(nn.Module):
+#     def __init__(self, eps=1e-6):
+#         super().__init__()
+#         self.eps = eps
+
+#     def forward(self, logits, targets):
+#         probs = torch.sigmoid(logits)
+#         preds = (probs > 0.5).float()
+#         targets = targets.float()
+
+#         intersection = (preds * targets).sum(dim=(1, 2, 3))
+#         union = preds.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3)) - intersection
+
+#         iou = (intersection + self.eps) / (union + self.eps)
+#         loss = 1.0 - iou  # IoU loss = 1 - IoU score
+#         return loss.mean()
+
+# class BCEAndIoULoss(nn.Module):
+#     def __init__(self, alpha=0.5, pos_weight=4.0):
+#         super().__init__()
+#         self.bce = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]))
+#         self.iou = BinaryIoULoss()
+#         self.alpha = alpha
+
+#     def forward(self, logits, targets):
+#         return self.alpha * self.bce(logits, targets.float()) + (1 - self.alpha) * self.iou(logits, targets)
+
+
+
 class SegmentationTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.criterion = nn.BCEWithLogitsLoss()
+        # self.criterion = BCEAndIoULoss()
 
     def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
         pixel_values = inputs["pixel_values"]
@@ -112,62 +144,77 @@ class SegmentationTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
     
 
-def compute_metrics(eval_pred):
+def compute_metrics(eval_pred, threshold=0.5):
     '''
     Validation metric logging
     '''
     logits, labels = eval_pred
-    preds = logits.argmax(axis=1)
-    mean_iou = np.mean(preds == labels)
+    preds = logits.argmax(axis=0)
+    
+    prob   = torch.sigmoid(torch.from_numpy(logits))
+    preds  = (prob > threshold).long()
+    labels = torch.from_numpy(labels).long()
+
+    tp = (preds & labels).sum()
+    fp = (preds & (~labels)).sum()
+    fn = ((~preds) & labels).sum()
+    iou = tp / (tp + fp + fn + 1e-6)
     return {
-        "accuracy": accuracy_score(labels.flatten(), preds.flatten()),
-        "f1": f1_score(labels.flatten(), preds.flatten(), average="macro"),
-        "mean_iou": mean_iou,
+        'acc': accuracy_score(labels.flatten(), preds.flatten()),
+        'f1': f1_score(labels.flatten(), preds.flatten(), average="weighted"), # weighted micro
+        "b_iou": iou,
     }
 
 
 class LogCallback(TrainerCallback):
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        print("Evaluation metrics:", metrics)
+        print("Validation set:", metrics)
 
 
-training_args = TrainingArguments(
-    output_dir="./outputs/",
-    learning_rate=2e-5,
-    per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=BATCH_SIZE,
-    num_train_epochs=3,
-    # logging
-    logging_dir='./outputs/pytorch_logs',
-    logging_strategy="epoch", # steps
-    logging_steps=50,
-    # validation
-    eval_steps=10,
-    eval_strategy="epoch",
-    save_strategy="epoch",
-    save_steps=100,
-    load_best_model_at_end=True,  
-    metric_for_best_model="f1",  # eval_loss, mean_iou, f1
-    greater_is_better=True,
+def train_model():
+    '''
+    Train the model
+    '''
+    training_args = TrainingArguments(
+        output_dir="./outputs/",
+        learning_rate=2e-5,
+        per_device_train_batch_size=BATCH_SIZE,
+        per_device_eval_batch_size=BATCH_SIZE,
+        num_train_epochs=1,
+        # logging
+        # logging_dir='./outputs/pytorch_logs/',                  # NOTE <- not working
+        logging_strategy="epoch",
+        logging_steps=1_000_00,
+        # validation
+        eval_steps=1000,
+        eval_strategy="epoch",
+        save_strategy="best",
+        save_steps=500,
+        load_best_model_at_end=True,  
+        metric_for_best_model="f1",  # iou, f1
+        greater_is_better=True,
 
-)
-trainer = SegmentationTrainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_ds,
-    eval_dataset=val_ds,
-    compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=5), LogCallback()],
-)
-trainer.train()
+    )
+    trainer = SegmentationTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_ds,
+        eval_dataset=val_ds,
+        compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=10), LogCallback()],
+    )
+    trainer.train()
 
 
-# final evaluation metrics
-metrics = trainer.evaluate()
-print(metrics)
+    # final evaluation metrics
+    metrics = trainer.evaluate()
+    print('Final validation metric:', metrics)
 
-# # Save model
-# file_path = './segformer_cloud.pth'
-# model.save_pretrained(file_path)
-# # torch.save(model.state_dict(), file_path)
+    # Save model
+    file_path = f'./segformer_cloud_{TIME_SEC}.pth'
+    torch.save(model.state_dict(), file_path)
 
+
+
+if __name__ == "__main__":
+    train_model()
