@@ -66,7 +66,7 @@ print('# batches (train, val) set:', n_steps_per_epoch, len(val_ds))
 # Load base model
 base_model = SegformerForSemanticSegmentation.from_pretrained(
     "nvidia/segformer-b0-finetuned-ade-512-512",
-    num_labels=1,                                                                               # TODO classes
+    num_labels=1,
     ignore_mismatched_sizes=True,
 )
 # freeze base model
@@ -95,7 +95,6 @@ class SegformerWithUpsample(torch.nn.Module):
             mode="bilinear",
             align_corners=False,
         )
-
         # loss
         if labels is not None:
             # labels shape (B,H,W) → (B,C,H,W)
@@ -111,8 +110,46 @@ class SegformerWithUpsample(torch.nn.Module):
             attentions    = outputs.attentions,
         )
 
+# class SegformerRefine(nn.Module):
+#     def __init__(self, base_model):
+#         super().__init__()
+#         self.base = base_model
+
+#         # upsampling layer
+#         self.refine1 = nn.Sequential(             # 256 -> 512
+#             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+#             nn.Conv2d(1, 32, 3, padding=1),
+#             nn.BatchNorm2d(32),
+#             nn.ReLU(inplace=True),
+#         )
+#         self.refine2 = nn.Sequential(             # 512 -S 1024
+#             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+#             nn.Conv2d(32, 16, 3, padding=1),
+#             nn.BatchNorm2d(16),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(16, 1, 1)
+#         )
+
+#     def forward(self, pixel_values=None, labels=None, **kwargs):
+#         out = self.base(pixel_values=pixel_values, **kwargs)
+#         x   = out.logits                         # (B,1,256,256)
+#         x   = self.refine1(x)                    # (B,32,512,512)
+#         logits = self.refine2(x)                 # (B,1,1024,1024)
+
+#         loss = None
+#         if labels is not None:
+#             if labels.ndim == 3:
+#                 labels = labels.unsqueeze(1).float()
+#             loss = F.binary_cross_entropy_with_logits(logits, labels)
+
+#         return SemanticSegmenterOutput(
+#             loss=loss, logits=logits,
+#             hidden_states=out.hidden_states, attentions=out.attentions
+#         )
 
 model = SegformerWithUpsample(base_model)
+# model = SegformerRefine(base_model)
+
 
 # train model
 class SegmentationTrainer(Trainer):
@@ -149,17 +186,15 @@ def compute_metrics(eval_pred, threshold=0.5):
     iou = tp / (tp + fp + fn + 1e-6)
     return {
         'acc': accuracy_score(labels.flatten(), preds.flatten()),
-        'f1': f1_score(labels.flatten(), preds.flatten(), average="micro"), # weighted micro
-        "b_iou": iou,
+        'f1': f1_score(labels.flatten(), preds.flatten(), average="weighted"), # weighted micro
+        "iou": iou,
     }
 
 
-class LogMlFlowAndTerminalCb(TrainerCallback):
+class LogMlFlowCb(TrainerCallback):
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        # console
-        print("Validation set:", metrics)
-        # log to MlFlow 
         if control.should_log:
+            # MlFlow 
             mlflow.log_params(metrics)
 
 
@@ -185,13 +220,12 @@ def train_model():
     Train the model
     '''
     with mlflow.start_run():
-
         training_args = TrainingArguments(
             output_dir=f"./outputs/{TIME_SEC}/",
             learning_rate=2e-5,
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=BATCH_SIZE,
-            num_train_epochs=20,
+            num_train_epochs=20,                            # NOTE epochs
             logging_strategy="epoch",
             logging_steps=n_steps_per_epoch,
             # validation
@@ -211,10 +245,11 @@ def train_model():
             eval_dataset=val_ds,
             compute_metrics=compute_metrics,
             callbacks=[EarlyStoppingCallback(early_stopping_patience=10), 
-                        LogMlFlowAndTerminalCb(), 
+                        LogMlFlowCb(), 
                         FileLoggerCb()],
         )
-        trainer.train()
+        try: trainer.train()
+        except KeyboardInterrupt: print('Stop training.')
 
         # final evaluation metrics
         metrics = trainer.evaluate()
