@@ -16,6 +16,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch
 import time
+import csv
 import mlflow
 
 mlflow.set_tracking_uri(uri="http://127.0.0.1:8080")
@@ -162,10 +163,9 @@ class FileLoggerCb(TrainerCallback):
                 w = csv.DictWriter(fd, logs.keys())
                 w.writeheader()
                 w.writerow(logs)
-                #fd.write(logs)
-            # broken json list
+            # broken json
             with open(self.filename+'.log', "a") as f:
-                f.write("{logs}\n")
+                f.write(f"{logs}\n")
 
 
 def train_model():
