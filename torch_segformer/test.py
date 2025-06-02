@@ -27,10 +27,6 @@ def plot_testset():
     preprocessor.do_rescale = False
     preprocessor.do_normalize = True  
 
-    # load data
-    val_ds = CloudSegDataloader('validation', preprocessor)
-    EVAL_BATCH_SIZE = len(val_ds)
-
     # load model
     file_path = f'./segformer_cloud_{TIME_SEC}.pth'
     base_model = SegformerForSemanticSegmentation.from_pretrained(
@@ -45,57 +41,73 @@ def plot_testset():
     for param in model.parameters():
         param.requires_grad = False
 
-    ## test inference on validation dataset
+    # test inference on dataset
     test_time_path = f'./tests/{TIME_SEC}'
     if not os.path.exists(test_time_path):
         os.makedirs(test_time_path)
 
+    # load data
+    test_ds = CloudSegDataloader('test', preprocessor)
+    EVAL_BATCH_SIZE = len(test_ds)
+    
     # make test prediction and plot
-    loader = DataLoader(val_ds, batch_size=EVAL_BATCH_SIZE)
+    loader = DataLoader(test_ds, batch_size=EVAL_BATCH_SIZE)
     map = next(iter(loader))
     X = map['pixel_values']
-    y_true = (map['labels'].cpu().numpy() * 255).astype(np.uint8)
+    y_true_lst = (map['labels'].cpu().numpy() * 255).astype(np.uint8)
 
     with torch.no_grad():
         y_pred = model(X)
         logits = y_pred.logits 
-        preds = logits * 255 # torch.sigmoid(logits) > 0.5     # NOTE discrete?
+        preds = logits * 255
+        preds_bin = torch.sigmoid(logits * 255) > 0.5
+        
         preds_np_lst = preds.detach().cpu().numpy()
+        preds_bin_lst = preds_bin.detach().cpu().numpy()
 
     # plot prediction vs true mask
     for i in tqdm(range(len(preds_np_lst))):
-        eval_fig = make_subplots(rows=2, cols=1, vertical_spacing=0.05, 
-                                subplot_titles=['Prediction', 'Ground truth'])
+        eval_fig = make_subplots(rows=3, cols=1, vertical_spacing=0.05, 
+                                subplot_titles=['Prediction', 'bin(y_pred)', 'Ground truth'])
         # Prediction 
         pred_fig = px.imshow(preds_np_lst[i, 0, :, :], color_continuous_scale='gray')
         pred_trace = pred_fig.data[0]
         pred_trace.update(coloraxis='coloraxis')
         eval_fig.add_trace(pred_trace, row=1, col=1)
+        # Prediction binary
+        pred_fig = px.imshow(preds_bin_lst[i, 0, :, :], color_continuous_scale='gray')
+        pred_trace = pred_fig.data[0]
+        pred_trace.update(coloraxis='coloraxis2')
+        eval_fig.add_trace(pred_trace, row=2, col=1)
         # Ground truth
-        gt_img = y_true[i, 0]
-        gt_fig = px.imshow(gt_img, color_continuous_scale='gray', zmin=0, zmax=1)
+        gt_fig = px.imshow(y_true_lst[i, 0], color_continuous_scale='gray', zmin=0, zmax=1)
         gt_trace = gt_fig.data[0]
-        gt_trace.update(coloraxis='coloraxis2')
-        eval_fig.add_trace(gt_trace, row=2, col=1)
+        gt_trace.update(coloraxis='coloraxis3')
+        eval_fig.add_trace(gt_trace, row=3, col=1)
         # style
         eval_fig.update_layout(
             autosize=False,
             coloraxis=dict(colorscale='gray'),
             coloraxis2=dict(colorscale='gray'),
+            coloraxis3=dict(colorscale='gray'),
             coloraxis_showscale=False,
             coloraxis2_showscale=False,
+            coloraxis3_showscale=False,
             width=1000,
             height=1600,
             annotations=[
                 dict(text='Prediction', x=0.5, xref='paper', y=1, yref='paper',
                     xanchor='center', yanchor='bottom',
                     showarrow=False, font=dict(size=20)),
-                dict(text='Ground truth', x=0.5, xref='paper', y=0.5, yref='paper',
+                dict(text='bin(y_pred)', x=0.5, xref='paper', y=0.66, yref='paper',
+                    xanchor='center', yanchor='bottom',
+                    showarrow=False, font=dict(size=20)),
+                dict(text='Ground truth', x=0.5, xref='paper', y=0.33, yref='paper',
                     xanchor='center', yanchor='bottom',
                     showarrow=False, font=dict(size=20)),
             ]
         )
-        eval_fig.write_html(f'{test_time_path}/eval_mask_{i}.html')
+        # eval_fig.write_html(f'{test_time_path}/eval_mask_{i}.html')
         eval_fig.write_image(f"{test_time_path}/eval_mask_{i}.png")
 
 

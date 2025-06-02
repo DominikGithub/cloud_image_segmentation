@@ -16,7 +16,7 @@ class CloudSegDataloader(data.Dataset):
 
     def __init__(self, set_name, data_preprocessor):
         super(CloudSegDataloader, self).__init__()
-        self.is_training = set_name == 'training'
+        self.set_name = set_name
         self.img_files = glob(os.path.join(base_path, set_name, 'lwir', '*.TIF'))
         self.mask_files = glob(os.path.join(base_path, set_name, 'clouds', '*.TIF'))
         self.preprocessor = data_preprocessor
@@ -39,6 +39,9 @@ class CloudSegDataloader(data.Dataset):
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             A.ToTensorV2(),
         ])
+        self.aug_transform_test = A.Compose([
+            A.ToTensorV2(),
+        ])
 
     def __getitem__(self, idx):
         img_path = self.img_files[idx]
@@ -52,8 +55,9 @@ class CloudSegDataloader(data.Dataset):
         mask_np = np.array(mask, dtype=np.float32) / 255.0
 
         # augmentation
-        if self.is_training:    augmented = self.aug_transform_train(image=img_np, mask=mask_np)
-        else:                   augmented = self.aug_transform_valid(image=img_np, mask=mask_np)
+        if self.set_name == 'training':    augmented = self.aug_transform_train(image=img_np, mask=mask_np)
+        elif self.set_name == 'validation':augmented = self.aug_transform_valid(image=img_np, mask=mask_np)
+        elif self.set_name == 'test':      augmented = self.aug_transform_test(image=img_np, mask=mask_np)
         pixel = augmented['image']
         label = augmented['mask']
         label = label.unsqueeze(0)

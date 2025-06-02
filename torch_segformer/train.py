@@ -47,7 +47,7 @@ preprocessor.do_normalize = True
 train_ds = CloudSegDataloader('training', preprocessor)
 val_ds = CloudSegDataloader('validation', preprocessor)
 n_steps_per_epoch = len(train_ds)
-print('# batches (train, val):', n_steps_per_epoch, len(val_ds))
+print('# batches (train, val, test):', n_steps_per_epoch, len(val_ds), 10)
 
 # ## plot samples to validate data loading
 # visualize_dataset_samples(val_ds, 2)
@@ -124,6 +124,22 @@ class SegmentationTrainer(Trainer):
         loss = self.criterion(logits, labels)
         return (loss, outputs) if return_outputs else loss
     
+    def log_mlflow(self, logs):
+        super().log(logs)
+        if self.args.local_rank in [-1, 0]:
+            for k, v in logs.items():
+                mlflow.log_metric(k, v, step=self.state.global_step)
+                
+    def evaluate_on_train(self):
+        # calculate training metrics for mlflow logging
+        train_preds = self.predict(self.train_dataset)
+        preds = train_preds.predictions
+        labels = train_preds.label_ids
+        preds = (preds > 0.5).astype(int)
+        f1 = f1_score(labels.flatten(), preds.flatten())
+        # TODO iou
+        self.log_mlflow({"train_f1": f1})
+    
 
 def compute_metrics(eval_pred, threshold=0.5):
     '''
@@ -140,16 +156,24 @@ def compute_metrics(eval_pred, threshold=0.5):
     fp = (preds & (~labels)).sum()
     fn = ((~preds) & labels).sum()
     iou = tp / (tp + fp + fn + 1e-6)
+    f1 = f1_score(labels.flatten(), preds.flatten(), average="weighted") # micro
     return {
-        'f1': f1_score(labels.flatten(), preds.flatten(), average="weighted"), # micro
+        'f1': f1,
         "iou": iou,
     }
 
 
-class LogMlFlowCb(TrainerCallback):
+class MlFlowLoggerCb(TrainerCallback):
+    def __init__(self, trainer=None):
+        self.trainer = trainer
+        
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
         if control.should_log:
             mlflow.log_params(metrics)
+    
+    def on_epoch_end(self, args, state, control, **kwargs):
+        if self.trainer:
+            self.trainer.evaluate_on_train()
 
 
 class FileLoggerCb(TrainerCallback):
@@ -167,7 +191,7 @@ class FileLoggerCb(TrainerCallback):
             # json
             with open(self.filename+'.log', "a") as f:
                 f.write(f"{logs}\n")
-
+                
 
 def train_model():
     '''
@@ -179,10 +203,9 @@ def train_model():
             learning_rate=2e-5,
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=BATCH_SIZE,
-            num_train_epochs=100,
+            num_train_epochs=150,  
             logging_strategy="epoch",
             logging_steps=n_steps_per_epoch,
-            # validation
             eval_steps=n_steps_per_epoch,
             eval_strategy="epoch",
             save_strategy="best",
@@ -198,10 +221,12 @@ def train_model():
             train_dataset=train_ds,
             eval_dataset=val_ds,
             compute_metrics=compute_metrics,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=10), 
-                        LogMlFlowCb(), 
-                        FileLoggerCb()],
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=10), FileLoggerCb()]
         )
+        # add callback with trainer ref after trainer init
+        callback = MlFlowLoggerCb(trainer=trainer)
+        trainer.add_callback(callback)
+
         try: trainer.train()
         except KeyboardInterrupt: print('Stop training.')
 
