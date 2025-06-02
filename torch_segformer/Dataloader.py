@@ -7,42 +7,64 @@ from glob2 import glob
 import numpy as np
 import torch.utils.data as data
 from PIL import Image
-import torch
+import albumentations as A
 
-base_path = "../dataset_clouds_from_lwir"
+base_path = "../../dataset_clouds_from_lwir"
 
 
 class CloudSegDataloader(data.Dataset):
 
     def __init__(self, set_name, data_preprocessor):
         super(CloudSegDataloader, self).__init__()
+        self.is_training = set_name == 'training'
         self.img_files = glob(os.path.join(base_path, set_name, 'lwir', '*.TIF'))
         self.mask_files = glob(os.path.join(base_path, set_name, 'clouds', '*.TIF'))
         self.preprocessor = data_preprocessor
-    
+        # augmentations
+        self.aug_transform_train = A.Compose([
+            # A.SmallestMaxSize(max_size=1024, p=1.0),
+            A.RandomCrop(height=1024 / 4 , width=1024 / 4, p=1.0),
+            A.SquareSymmetry(p=1.0),
+            A.Rotate(limit=30, p=0.3),
+            # image only
+            # A.RandomBrightnessContrast(p=0.3),
+            # A.GaussNoise(std_range=(0.1, 0.2), p=0.2),
+            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            A.ToTensorV2(),
+        ])
+        self.aug_transform_valid = A.Compose([
+            # A.SmallestMaxSize(max_size=1024, p=1.0),
+            A.SquareSymmetry(p=1.0),
+            # A.Rotate(limit=30, p=0.3),
+            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            A.ToTensorV2(),
+        ])
+
     def __getitem__(self, idx):
         img_path = self.img_files[idx]
         mask_path = self.mask_files[idx]
-
-        # image downsampling to 256x256
+        # image
         img = Image.open(img_path).convert('F')
         img_np = np.array(img, dtype=np.float32) / 255.0
         img_np = np.stack([img_np]*3, axis=-1)
-        # img_resized = Image.fromarray((img_np * 255).astype(np.uint8)).resize((256, 256), resample=Image.BILINEAR)
-        img_resized = img_np
-        img_resized_np = np.array(img_resized, dtype=np.float32) / 255.0
+        # Mask
+        mask = Image.open(mask_path)
+        mask_np = np.array(mask, dtype=np.float32) / 255.0
 
-        enc = self.preprocessor(images=img_resized_np, return_tensors="pt")
+        # augmentation
+        if self.is_training:    augmented = self.aug_transform_train(image=img_np, mask=mask_np)
+        else:                   augmented = self.aug_transform_valid(image=img_np, mask=mask_np)
+        pixel = augmented['image']
+        label = augmented['mask']
+        label = label.unsqueeze(0)
+
+        # segformer image preprocessing
+        enc = self.preprocessor(images=pixel, return_tensors="pt")
         pixel = enc["pixel_values"].squeeze(0)
 
-        # Mask downsampling 64x64
-        mask = Image.open(mask_path)
-        # mask = mask.resize((64, 64), resample=Image.NEAREST)
-        mask_np = np.array(mask, dtype=np.float32) / 255.0
-        mask_torch_tens = torch.from_numpy(mask_np).float().unsqueeze(0)
         return {
             "pixel_values": pixel,
-            "labels": mask_torch_tens
+            "labels": label
         }
 
     def __len__(self):

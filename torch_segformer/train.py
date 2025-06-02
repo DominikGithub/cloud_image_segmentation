@@ -32,7 +32,7 @@ os.environ["MLFLOW_ASYNC_LOGGING_BUFFERING_SECONDS"] = "2"
 
 
 TIME_SEC = int(time.time())
-BATCH_SIZE = 20
+BATCH_SIZE = 16
 
 # configure tracking 
 mlflow.set_experiment(f"Experiment {TIME_SEC}")
@@ -47,21 +47,11 @@ preprocessor.do_normalize = True
 train_ds = CloudSegDataloader('training', preprocessor)
 val_ds = CloudSegDataloader('validation', preprocessor)
 n_steps_per_epoch = len(train_ds)
-print('# batches (train, val) set:', n_steps_per_epoch, len(val_ds))
+print('# batches (train, val):', n_steps_per_epoch, len(val_ds))
 
 # ## plot samples to validate data loading
 # visualize_dataset_samples(val_ds, 2)
 # exit(0)
-
-# ## validate dataloader sample shape
-# from torch.utils.data import DataLoader
-# dl = DataLoader(train_ds, batch_size=2)
-# batch = next(iter(dl))
-# print(batch)
-# print(batch["pixel_values"].shape)  # (2, 3, 1024, 1024)
-# print(batch["labels"].shape)        # (2, 1024, 1024)
-# exit(0)
-
 
 # Load base model
 base_model = SegformerForSemanticSegmentation.from_pretrained(
@@ -69,8 +59,8 @@ base_model = SegformerForSemanticSegmentation.from_pretrained(
     num_labels=1,
     ignore_mismatched_sizes=True,
 )
-# freeze base model
-for param in base_model.segformer.parameters(): # encoder
+# freeze base model encoder layers
+for param in base_model.segformer.parameters():
     param.requires_grad = False
 # for param in base_model.decode_head.parameters():
 #     param.requires_grad = False
@@ -80,76 +70,42 @@ for param in base_model.segformer.parameters(): # encoder
 
 
 class SegformerWithUpsample(torch.nn.Module):
-    def __init__(self, base_model, target_size=(1024, 1024)):
+    def __init__(self, base_model):
         super().__init__()
-        self.base_model = base_model
-        self.target_size = target_size
-
-    def forward(self,pixel_values=None,labels=None,**kwargs):
-        outputs = self.base_model(pixel_values=pixel_values, labels=labels, **kwargs)
-        logits = outputs.logits           # [B, C, H_out, W_out]
-        # upscaling
-        logits = F.interpolate(
-            logits,
-            size=self.target_size,
-            mode="bilinear",
-            align_corners=False,
+        self.base = base_model
+        # upsampling layer
+        self.refine1 = nn.Sequential(             # 256 -> 512
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(1, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
         )
-        # loss
+        self.refine2 = nn.Sequential(             # 512 -> 1024
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(32, 16, 3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 1, 1)
+        )
+
+    def forward(self, pixel_values=None, labels=None, **kwargs):
+        out = self.base(pixel_values=pixel_values, **kwargs)
+        x   = out.logits                         # (B,1,256,256)
+        x   = self.refine1(x)                    # (B,32,512,512)
+        logits = self.refine2(x)                 # (B,1,1024,1024)
+
+        loss = None
         if labels is not None:
-            # labels shape (B,H,W) → (B,C,H,W)
-            if labels.ndim == 3: labels_for_loss = labels.unsqueeze(1).float()
-            else:                labels_for_loss = labels.float()
-            loss = F.binary_cross_entropy_with_logits(logits, labels_for_loss)
-        else: 
-            loss = None
+            if labels.ndim == 3:
+                labels = labels.unsqueeze(1).float()
+            loss = F.binary_cross_entropy_with_logits(logits, labels)
+
         return SemanticSegmenterOutput(
-            loss      = loss,
-            logits    = logits,
-            hidden_states = outputs.hidden_states,
-            attentions    = outputs.attentions,
+            loss=loss, logits=logits,
+            hidden_states=out.hidden_states, attentions=out.attentions
         )
-
-# class SegformerRefine(nn.Module):
-#     def __init__(self, base_model):
-#         super().__init__()
-#         self.base = base_model
-
-#         # upsampling layer
-#         self.refine1 = nn.Sequential(             # 256 -> 512
-#             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-#             nn.Conv2d(1, 32, 3, padding=1),
-#             nn.BatchNorm2d(32),
-#             nn.ReLU(inplace=True),
-#         )
-#         self.refine2 = nn.Sequential(             # 512 -S 1024
-#             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-#             nn.Conv2d(32, 16, 3, padding=1),
-#             nn.BatchNorm2d(16),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(16, 1, 1)
-#         )
-
-#     def forward(self, pixel_values=None, labels=None, **kwargs):
-#         out = self.base(pixel_values=pixel_values, **kwargs)
-#         x   = out.logits                         # (B,1,256,256)
-#         x   = self.refine1(x)                    # (B,32,512,512)
-#         logits = self.refine2(x)                 # (B,1,1024,1024)
-
-#         loss = None
-#         if labels is not None:
-#             if labels.ndim == 3:
-#                 labels = labels.unsqueeze(1).float()
-#             loss = F.binary_cross_entropy_with_logits(logits, labels)
-
-#         return SemanticSegmenterOutput(
-#             loss=loss, logits=logits,
-#             hidden_states=out.hidden_states, attentions=out.attentions
-#         )
 
 model = SegformerWithUpsample(base_model)
-# model = SegformerRefine(base_model)
-
 
 # train model
 class SegmentationTrainer(Trainer):
@@ -185,8 +141,7 @@ def compute_metrics(eval_pred, threshold=0.5):
     fn = ((~preds) & labels).sum()
     iou = tp / (tp + fp + fn + 1e-6)
     return {
-        'acc': accuracy_score(labels.flatten(), preds.flatten()),
-        'f1': f1_score(labels.flatten(), preds.flatten(), average="weighted"), # weighted micro
+        'f1': f1_score(labels.flatten(), preds.flatten(), average="weighted"), # micro
         "iou": iou,
     }
 
@@ -194,7 +149,6 @@ def compute_metrics(eval_pred, threshold=0.5):
 class LogMlFlowCb(TrainerCallback):
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
         if control.should_log:
-            # MlFlow 
             mlflow.log_params(metrics)
 
 
@@ -210,7 +164,7 @@ class FileLoggerCb(TrainerCallback):
                 if logs['epoch'] == 1.0:
                     w.writeheader()
                 w.writerow(logs)
-            # broken json
+            # json
             with open(self.filename+'.log', "a") as f:
                 f.write(f"{logs}\n")
 
@@ -225,7 +179,7 @@ def train_model():
             learning_rate=2e-5,
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=BATCH_SIZE,
-            num_train_epochs=20,                            # NOTE epochs
+            num_train_epochs=100,
             logging_strategy="epoch",
             logging_steps=n_steps_per_epoch,
             # validation

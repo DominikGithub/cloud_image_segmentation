@@ -3,27 +3,18 @@ Make test prediction using the fine tuned model.
 '''
 
 from Dataloader import CloudSegDataloader
-from train import SegformerWithUpsample, SegformerRefine
+from train import SegformerWithUpsample
 
 import os
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score
 from transformers import SegformerForSemanticSegmentation, SegformerFeatureExtractor
-from transformers.modeling_outputs import SemanticSegmenterOutput
-from transformers import Trainer, TrainingArguments, EarlyStoppingCallback, TrainerCallback
-from visualization import visualize_dataset_samples
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
-import torch.nn as nn
 import torch
 from tqdm import tqdm
 import plotly.express as px
 from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-from PIL import Image
-import time
 
-TIME_SEC = 1748810838                 # NOTE set according to training scripts model timestamp to be loaded
+TIME_SEC = 0                 # NOTE set according to training scripts model timestamp to be loaded
 
 
 def plot_testset():
@@ -47,8 +38,7 @@ def plot_testset():
         num_labels=1,
         ignore_mismatched_sizes=True
     )
-    # model = SegformerWithUpsample(base_model)
-    model = SegformerRefine(base_model)
+    model = SegformerWithUpsample(base_model)
     model.load_state_dict(torch.load(file_path))
     model.eval()
     # freeze model params for inference
@@ -69,13 +59,13 @@ def plot_testset():
     with torch.no_grad():
         y_pred = model(X)
         logits = y_pred.logits 
-        preds = logits * 255 # torch.sigmoid(logits) > 0.5                 # NOTE discrete?
+        preds = logits * 255 # torch.sigmoid(logits) > 0.5     # NOTE discrete?
         preds_np_lst = preds.detach().cpu().numpy()
 
     # plot prediction vs true mask
     for i in tqdm(range(len(preds_np_lst))):
-        eval_fig = make_subplots(rows=2, cols=1,  vertical_spacing=0.05, subplot_titles=['Prediction', 'Ground truth'])
-        
+        eval_fig = make_subplots(rows=2, cols=1, vertical_spacing=0.05, 
+                                subplot_titles=['Prediction', 'Ground truth'])
         # Prediction 
         pred_fig = px.imshow(preds_np_lst[i, 0, :, :], color_continuous_scale='gray')
         pred_trace = pred_fig.data[0]

@@ -4,6 +4,8 @@ scikit-learn
 transformers
 transformers[torch]
 torchvision
-pip install --upgrade kaleido
+opencv-python
+albumentations
 
-pip install -u mlflow
+pip install --upgrade kaleido
+pip install -U mlflow
