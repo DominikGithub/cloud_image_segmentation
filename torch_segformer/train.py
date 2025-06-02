@@ -12,7 +12,7 @@ $ mlflow server --host 0.0.0.0 --port 8080 [--app-name basic-auth]
 from Dataloader import CloudSegDataloader
 
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import f1_score
 from transformers import SegformerForSemanticSegmentation, SegformerFeatureExtractor
 from transformers.modeling_outputs import SemanticSegmenterOutput
 from transformers import Trainer, TrainingArguments, EarlyStoppingCallback, TrainerCallback
@@ -32,10 +32,8 @@ os.environ["MLFLOW_ASYNC_LOGGING_BUFFERING_SECONDS"] = "2"
 
 
 TIME_SEC = int(time.time())
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 
-# configure tracking 
-mlflow.set_experiment(f"Experiment {TIME_SEC}")
 
 # hf segformer data preprocessor
 preprocessor = SegformerFeatureExtractor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512", use_fast=False)
@@ -46,8 +44,9 @@ preprocessor.do_normalize = True
 # load data
 train_ds = CloudSegDataloader('training', preprocessor)
 val_ds = CloudSegDataloader('validation', preprocessor)
+test_ds = CloudSegDataloader('test', preprocessor)
 n_steps_per_epoch = len(train_ds)
-print('# batches (train, val, test):', n_steps_per_epoch, len(val_ds), 10)
+print('# batches (train, val, test):', n_steps_per_epoch, len(val_ds), len(test_ds))
 
 # ## plot samples to validate data loading
 # visualize_dataset_samples(val_ds, 2)
@@ -131,14 +130,22 @@ class SegmentationTrainer(Trainer):
                 mlflow.log_metric(k, v, step=self.state.global_step)
                 
     def evaluate_on_train(self):
-        # calculate training metrics for mlflow logging
+        # calculate metrics on training data for mlflow
         train_preds = self.predict(self.train_dataset)
         preds = train_preds.predictions
         labels = train_preds.label_ids
-        preds = (preds > 0.5).astype(int)
+        # iou
+        prob   = torch.sigmoid(torch.from_numpy(preds))
+        preds  = (prob > 0.5).long()
+        labels = torch.from_numpy(labels).long()
+        tp = (preds & labels).sum()
+        fp = (preds & (~labels)).sum()
+        fn = ((~preds) & labels).sum()
+        iou = (tp / (tp + fp + fn + 1e-6)).cpu().numpy().astype(np.float32)
+        # f1
+        preds = (preds > 0.5).cpu().numpy().astype(np.float32)
         f1 = f1_score(labels.flatten(), preds.flatten())
-        # TODO iou
-        self.log_mlflow({"train_f1": f1})
+        self.log_mlflow({"train_f1": f1, 'train_iou': float(iou)})
     
 
 def compute_metrics(eval_pred, threshold=0.5):
@@ -197,6 +204,8 @@ def train_model():
     '''
     Train the model
     '''
+    # configure tracking 
+    mlflow.set_experiment(f"Experiment {TIME_SEC}")
     with mlflow.start_run():
         training_args = TrainingArguments(
             output_dir=f"./outputs/{TIME_SEC}/",
@@ -206,12 +215,13 @@ def train_model():
             num_train_epochs=150,  
             logging_strategy="epoch",
             logging_steps=n_steps_per_epoch,
+            report_to=["mlflow"],                           # TODO check logging
             eval_steps=n_steps_per_epoch,
             eval_strategy="epoch",
             save_strategy="best",
             save_steps=n_steps_per_epoch,
             load_best_model_at_end=True,  
-            metric_for_best_model="f1",  # iou, f1
+            metric_for_best_model="iou",  # iou, f1
             greater_is_better=True,
 
         )
@@ -226,7 +236,7 @@ def train_model():
         # add callback with trainer ref after trainer init
         callback = MlFlowLoggerCb(trainer=trainer)
         trainer.add_callback(callback)
-
+        # train model
         try: trainer.train()
         except KeyboardInterrupt: print('Stop training.')
 

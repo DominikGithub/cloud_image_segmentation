@@ -6,6 +6,7 @@ import os
 from glob2 import glob
 import numpy as np
 import torch.utils.data as data
+import torch
 from PIL import Image
 import albumentations as A
 
@@ -23,12 +24,12 @@ class CloudSegDataloader(data.Dataset):
         # augmentations
         self.aug_transform_train = A.Compose([
             # A.SmallestMaxSize(max_size=1024, p=1.0),
-            A.RandomCrop(height=1024 / 4 , width=1024 / 4, p=1.0),
+            A.RandomCrop(height=1024 / 2 , width=1024 / 2, p=1.0),
             A.SquareSymmetry(p=1.0),
             A.Rotate(limit=30, p=0.3),
             # image only
-            # A.RandomBrightnessContrast(p=0.3),
-            # A.GaussNoise(std_range=(0.1, 0.2), p=0.2),
+            A.RandomBrightnessContrast(p=0.3),
+            A.GaussNoise(std_range=(0.05, 0.2), p=0.2),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             A.ToTensorV2(),
         ])
@@ -55,7 +56,7 @@ class CloudSegDataloader(data.Dataset):
         mask_np = np.array(mask, dtype=np.float32) / 255.0
 
         # augmentation
-        if self.set_name == 'training':    augmented = self.aug_transform_train(image=img_np, mask=mask_np)
+        if   self.set_name == 'training':  augmented = self.aug_transform_train(image=img_np, mask=mask_np)
         elif self.set_name == 'validation':augmented = self.aug_transform_valid(image=img_np, mask=mask_np)
         elif self.set_name == 'test':      augmented = self.aug_transform_test(image=img_np, mask=mask_np)
         pixel = augmented['image']
