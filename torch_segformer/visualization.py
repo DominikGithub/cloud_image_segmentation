@@ -2,51 +2,64 @@
 Utils function for visualization.
 '''
 
+import numpy as np
 import plotly.express as px
 from plotly.subplots import make_subplots
+from torch.utils.data import DataLoader
+from Dataloader import CloudSegDataloader
+from transformers import SegformerFeatureExtractor
+
+
+# hf segformer data preprocessor
+preprocessor = SegformerFeatureExtractor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512", use_fast=False)
+preprocessor.do_resize = False
+preprocessor.do_rescale = False
+preprocessor.do_normalize = True  
+
+# load data
+train_ds = CloudSegDataloader('training', preprocessor)
+val_ds = CloudSegDataloader('validation', preprocessor)
+test_ds = CloudSegDataloader('test', preprocessor)
+n_steps_per_epoch = len(train_ds)
+print('# batches (train, val, test):', n_steps_per_epoch, len(val_ds), len(test_ds))
 
 
 def visualize_dataset_samples(ds, num=3):
     '''
     Plot some image and mask samples.
     '''
-    ds_iter = iter(ds)
-    for _ in range(num):
-        map = next(ds_iter)
-        i = map['pixel_values']
-        m = map['labels']
-        # print(i.numpy().shape, m.numpy().shape)
-        # print(i)
-        # print(m)
-
-        # plot image and mask
-        eval_fig = make_subplots(rows=2, cols=1,  vertical_spacing=0.05, subplot_titles=['IR image', 'Mask'])
-        # Image 
-        pred_fig = px.imshow(i.numpy()[0,:,:], color_continuous_scale='gray', binary_string=False)
-        pred_trace = pred_fig.data[0]
-        pred_trace.update(coloraxis='coloraxis')
-        eval_fig.add_trace(pred_trace, row=1, col=1)
-        # Mask
-        gt_fig = px.imshow(m.numpy(), color_continuous_scale='gray', binary_string=False)
-        gt_trace = gt_fig.data[0]
-        gt_trace.update(coloraxis='coloraxis')
-        eval_fig.add_trace(gt_trace, row=2, col=1)
-        # style
-        eval_fig.update_layout(
-            autosize=False,
-            coloraxis=dict(colorscale='gray'),
-            coloraxis_showscale=True,
-            width=1000,
-            height=1600,
-            annotations=[
-                dict(text='Image', x=0.5, xref='paper', y=1, yref='paper',
-                    xanchor='center', yanchor='bottom',
-                    showarrow=False, font=dict(size=20)),
-                dict(text='Mask', x=0.5, xref='paper', y=0.5, yref='paper',
-                    xanchor='center', yanchor='bottom',
-                    showarrow=False, font=dict(size=20)),
-            ]
-        )
-        eval_fig.show()
-        eval_fig.write_html(f'./torch_input_{i}.html')
-        eval_fig.write_image(f"./torch_input_{i}.png")
+    loader = DataLoader(ds, batch_size=num)
+    map = next(iter(loader))
+    X = map['pixel_values']
+    mask_lst = map['labels'].cpu().numpy()
+    
+    for idx in range(num):
+        img = X[idx].numpy()
+        msk =  mask_lst[idx]
+        print(img.shape, msk.shape)
+        
+        fig1 = px.imshow(msk[0], color_continuous_scale='gray')
+        fig1.update_layout(width=1200, height=1200, autosize=False, coloraxis_showscale=False,
+                            annotations=[
+                                dict(text='Mask', x=0.5, xref='paper', y=1, yref='paper',
+                                    xanchor='center', yanchor='bottom',
+                                    showarrow=False, font=dict(size=20))
+                                ]
+                            )
+        # fig1.write_image(f"./mask_{idx}.png")
+        fig1.show()
+        
+        fig2 = px.imshow(img[0], color_continuous_scale='gray')
+        fig2.update_layout(width=1200, height=1200, autosize=False, coloraxis_showscale=False,
+                            annotations=[
+                                dict(text='Image', x=0.5, xref='paper', y=1, yref='paper',
+                                    xanchor='center', yanchor='bottom',
+                                    showarrow=False, font=dict(size=20))
+                                ]
+                            )
+        # fig2.write_image(f"./image_{idx}.png")
+        fig2.show()
+        
+        
+if __name__ == '__main__':
+    visualize_dataset_samples(test_ds, num=2)

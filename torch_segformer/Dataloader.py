@@ -7,10 +7,10 @@ from glob2 import glob
 import numpy as np
 import torch.utils.data as data
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 import albumentations as A
 
-base_path = "../../dataset_clouds_from_lwir"
+base_path = "../dataset_clouds_from_lwir"
 
 
 class CloudSegDataloader(data.Dataset):
@@ -49,10 +49,13 @@ class CloudSegDataloader(data.Dataset):
         mask_path = self.mask_files[idx]
         # image
         img = Image.open(img_path).convert('F')
+        # correct TIF image orientation
+        img = ImageOps.exif_transpose(img)
         img_np = np.array(img, dtype=np.float32) / 255.0
         img_np = np.stack([img_np]*3, axis=-1)
         # Mask
         mask = Image.open(mask_path)
+        mask = ImageOps.exif_transpose(mask)
         mask_np = np.array(mask, dtype=np.float32) / 255.0
 
         # augmentation

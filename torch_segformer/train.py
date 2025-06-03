@@ -52,6 +52,8 @@ print('# batches (train, val, test):', n_steps_per_epoch, len(val_ds), len(test_
 # visualize_dataset_samples(val_ds, 2)
 # exit(0)
 
+
+
 # Load base model
 base_model = SegformerForSemanticSegmentation.from_pretrained(
     "nvidia/segformer-b0-finetuned-ade-512-512",
@@ -215,7 +217,6 @@ def train_model():
             num_train_epochs=150,  
             logging_strategy="epoch",
             logging_steps=n_steps_per_epoch,
-            report_to=["mlflow"],                           # TODO check logging
             eval_steps=n_steps_per_epoch,
             eval_strategy="epoch",
             save_strategy="best",
