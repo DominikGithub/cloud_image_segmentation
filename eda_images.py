@@ -9,12 +9,12 @@ from PIL import Image
 from PIL.TiffTags import TAGS
 
 # training data set samples
-img_mask_train_lst  = glob.glob("./dataset_clouds_from_lwir/training/clouds/*.tif")
-img_cloud_train_lst = glob.glob("./dataset_clouds_from_lwir/training/lwir/*.tif")
+mask_train_lst  = glob.glob("./dataset_clouds_from_lwir/training/clouds/*.tif")
+img_train_lst = glob.glob("./dataset_clouds_from_lwir/training/lwir/*.tif")
 # pprint(img_cloud_train_lst[:5])
 
 # cloud image 
-img = Image.open(img_cloud_train_lst[0])
+img = Image.open(img_train_lst[0])
 
 img.show()
 np_img_arr = np.array(img)
@@ -43,7 +43,7 @@ Sample TIF meta data
 '''
 
 # segmentation mask
-mask_img = Image.open(img_mask_train_lst[0])
+mask_img = Image.open(mask_train_lst[0])
 
 mask_img.show()
 np_mask_arr = np.array(mask_img)

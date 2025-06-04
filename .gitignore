@@ -1,2 +1,7 @@
 /tests/*.html
 /tests/*.png
+
+/tensorflow_vgg/tests/*
+/tensorflow_vgg/tfdataset/*
+
+*.pth

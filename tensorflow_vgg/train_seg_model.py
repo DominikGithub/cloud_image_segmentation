@@ -3,11 +3,7 @@ Transfer learning of VGG19 model for segmentation tasks of clouds in LWIR images
 '''
 
 import json
-from pathlib import Path
-from tqdm import tqdm
-import  multiprocessing as mp
 import time
-import numpy as np
 import pandas as pd
 import keras
 from keras.layers import Input, Conv2D, UpSampling2D, Concatenate, BatchNormalization
@@ -15,7 +11,6 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, L
 from keras.applications import VGG19
 import plotly.express as px
 import plotly.graph_objects as go
-from PIL import Image
 
 from utils import *
 
@@ -40,52 +35,51 @@ vgg_model.trainable = False
 x = vgg_model(inp, training=False)
 
 # trainable segmentation layers
+# #--------------------------------
+# # intermediate sized upscaling model
+# x = vgg_model.output  # (32x32x512)
 
-#--------------------------------
-# intermediate sized upscaling model
-x = vgg_model.output  # (32x32x512)
+# # compact decoder (fewer filter + BatchNorm)
+# x = UpSampling2D()(x)  # 64x64
+# x = Conv2D(128, 3, padding='same', activation='relu')(x)
+# x = BatchNormalization()(x)
 
-# compact decoder (fewer filter + BatchNorm)
-x = UpSampling2D()(x)  # 64x64
-x = Conv2D(128, 3, padding='same', activation='relu')(x)
-x = BatchNormalization()(x)
+# x = UpSampling2D()(x)  # 128x128
+# x = Conv2D(64, 3, padding='same', activation='relu')(x)
+# x = BatchNormalization()(x)
 
-x = UpSampling2D()(x)  # 128x128
-x = Conv2D(64, 3, padding='same', activation='relu')(x)
-x = BatchNormalization()(x)
+# x = UpSampling2D()(x)  # 256x256
+# x = Conv2D(32, 3, padding='same', activation='relu')(x)
+# x = BatchNormalization()(x)
 
-x = UpSampling2D()(x)  # 256x256
-x = Conv2D(32, 3, padding='same', activation='relu')(x)
-x = BatchNormalization()(x)
+# x = UpSampling2D()(x)  # 512x512
+# x = Conv2D(16, 3, padding='same', activation='relu')(x)
 
-x = UpSampling2D()(x)  # 512x512
-x = Conv2D(16, 3, padding='same', activation='relu')(x)
-
-x = UpSampling2D()(x)  # 1024x1024
-outputs = Conv2D(1, 1, activation='sigmoid')(x)
-#-----------------------------------
-
-
-# # intermediate + few skip connections                                     # NOTE not working on val set
-# b3 = vgg_model.get_layer("block3_pool").output   # 128×128
-# b4 = vgg_model.get_layer("block4_pool").output   # 64×64
-# b5 = vgg_model.get_layer("block5_pool").output   # 32×32
-
-# x = Conv2D(512, 3, activation="relu", padding="same")(b5)
-# x = UpSampling2D()(x)  # → 64×64
-# x = Concatenate()([x, b4])
-# x = Conv2D(256, 3, activation="relu", padding="same")(x)
-
-# x = UpSampling2D()(x)  # → 128×128
-# x = Concatenate()([x, b3])
-# x = Conv2D(128, 3, activation="relu", padding="same")(x)
-
-# x = UpSampling2D(size=(8, 8))(x)  # → 1024×1024
-# outputs = Conv2D(1, 1, activation="sigmoid")(x)
+# x = UpSampling2D()(x)  # 1024x1024
+# outputs = Conv2D(1, 1, activation='sigmoid')(x)
 # #-----------------------------------
 
 
-# NOTE deep model -> overfitting
+# intermediate + few skip connections                                     # NOTE not working on val set
+b3 = vgg_model.get_layer("block3_pool").output   # 128×128
+b4 = vgg_model.get_layer("block4_pool").output   # 64×64
+b5 = vgg_model.get_layer("block5_pool").output   # 32×32
+
+x = Conv2D(512, 3, activation="relu", padding="same")(b5)
+x = UpSampling2D()(x)  # → 64×64
+x = Concatenate()([x, b4])
+x = Conv2D(256, 3, activation="relu", padding="same")(x)
+
+x = UpSampling2D()(x)  # → 128×128
+x = Concatenate()([x, b3])
+x = Conv2D(128, 3, activation="relu", padding="same")(x)
+
+x = UpSampling2D(size=(8, 8))(x)  # → 1024×1024
+outputs = Conv2D(1, 1, activation="sigmoid")(x)
+#-----------------------------------
+
+
+# # NOTE deep model -> overfitting
 # # skip tensors
 # b1, b2 = vgg_model.get_layer("block1_pool").output, vgg_model.get_layer("block2_pool").output
 # b3, b4 = vgg_model.get_layer("block3_pool").output, vgg_model.get_layer("block4_pool").output
@@ -160,10 +154,48 @@ log_cb = LambdaCallback(
 #             )
 # fine_tune_cb = FineTuneCallback(seg_model, fine_tune_epoch=20, new_lr=1e-5)
 
+
+# ## data augmentation
+# def _augment(image, mask):
+#     '''
+#     Training online data augmentation.
+#     '''
+#     # common seed for geo transformations
+#     seed = tf.random.uniform([], maxval=1e6, dtype=tf.float32)
+
+#     # image = tf.image.grayscale_to_rgb(tf.expand_dims(image, -1))
+#     if tf.rank(image) == 2: image = tf.expand_dims(image, -1)
+#     if tf.rank(mask) == 2:  mask = tf.expand_dims(mask, -1)
+
+#     # geom transform on image & mask
+#     image = tf.image.stateless_random_flip_left_right(image, seed=[seed, 0])
+#     mask  = tf.image.stateless_random_flip_left_right(mask,  seed=[seed, 0])
+#     image = tf.image.stateless_random_flip_up_down(image,   seed=[seed, 1])
+#     mask  = tf.image.stateless_random_flip_up_down(mask,    seed=[seed, 1])
+
+#     # pixel base aug on image only
+#     image = tf.image.stateless_random_brightness(image, max_delta=0.1,seed=[seed, 2])
+
+#     # feste Form setzen
+#     image.set_shape([1024, 1024, 3])
+#     mask.set_shape([1024, 1024, 1])
+#     return image, mask
+
+# train_auged_ds = (
+#     train_dataset_tf
+#     .cache('/tmp/cache.tfdata')
+#     .shuffle(200)
+#     .map(_augment, num_parallel_calls=tf.data.AUTOTUNE)
+#     .batch(BATCH_SIZE)
+#     .prefetch(tf.data.AUTOTUNE)
+# )
+
+
+
 try: history_fine = seg_model.fit(train_dataset_tf, 
                                     validation_data=val_dataset_tf, 
                                     callbacks=[es_cb, save_cb, lr_cb, log_cb],  #fine_tune_cb
-                                    epochs=150)
+                                    epochs=50)
 except KeyboardInterrupt: print("\r\nTraining interrupted")
 
 seg_model.save(f"./segmentation_model_{TIME_SEC}.keras")

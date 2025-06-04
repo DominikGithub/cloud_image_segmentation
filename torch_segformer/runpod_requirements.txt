@@ -1,0 +1,11 @@
+glob2
+plotly
+scikit-learn
+transformers
+transformers[torch]
+torchvision
+opencv-python
+albumentations
+
+pip install --upgrade kaleido
+pip install -U mlflow
