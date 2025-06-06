@@ -8,6 +8,8 @@ import numpy as np
 import torch.utils.data as data
 import torch
 from PIL import Image, ImageOps
+from skimage.filters import sobel
+from skimage.feature import local_binary_pattern
 import albumentations as A
 
 base_path = "../dataset_clouds_from_lwir"
@@ -53,6 +55,25 @@ class CloudSegDataloader(data.Dataset):
         img = ImageOps.exif_transpose(img)
         img_np = np.array(img, dtype=np.float32) / 255.0
         img_np = np.stack([img_np]*3, axis=-1)
+        
+        # # feature extraction to use all 3 RGB channels
+        # features = [img_np]
+        # # # Normalized
+        # # norm = (img_np - np.mean(img_np)) / (np.std(img_np) + 1e-8)
+        # # features.append(norm)
+        # # Sobel edges
+        # sobel_edges = sobel(img_np)
+        # features.append(sobel_edges)
+        # # LBP
+        # lbp = local_binary_pattern(img_np, P=8, R=1, method='uniform')
+        # features.append(lbp)
+        # # # Local mean and variance
+        # # local_mean = uniform_filter(img_np, size=5)
+        # # # local_var = variance(img_np)
+        # # # features.append([local_mean, local_var])
+        # # features.append(np.array(local_mean))
+        # img_np = np.stack(features, axis=0)
+        
         # Mask
         mask = Image.open(mask_path)
         mask = ImageOps.exif_transpose(mask)

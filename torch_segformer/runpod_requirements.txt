@@ -8,4 +8,4 @@ opencv-python
 albumentations
 
 pip install --upgrade kaleido
-pip install -U mlflow
+pip install -U mlflow --ignore-installed

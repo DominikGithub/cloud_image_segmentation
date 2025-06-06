@@ -40,7 +40,10 @@ def serialize_batch_pair_from_file_list(img_cloud_lst, img_mask_lst, batch_idx, 
     # cloud images
     cloud_arr = np.ndarray((0, 1024, 1024, 3))
     for img in tqdm(img_cloud_lst):
-        image = Image.open(img)
+        image = Image.open(img)                                                                      # TODO validate image orientation
+        
+        # TODO add EXIF settings
+         
         input_arr = np.array(image) / 255.0
         # turn grayscale into VGG 3-channel image
         input_arr = np.stack((input_arr,)*3, axis=-1)
@@ -52,7 +55,10 @@ def serialize_batch_pair_from_file_list(img_cloud_lst, img_mask_lst, batch_idx, 
     # segmentation mask
     mask_arr = np.ndarray((0, 1024, 1024))
     for mask in tqdm(img_mask_lst):
-        msk_arr = Image.open(mask)
+        msk_arr = Image.open(mask)                                                                      # TODO validate image orientation
+        
+        # TODO add EXIF settings
+        
         msk_arr = np.array([msk_arr]) / 255.0
         mask_arr = np.concatenate((mask_arr, msk_arr), axis=0)
 
