@@ -1,7 +1,12 @@
-/tests/*.html
-/tests/*.png
+/__pycache__
+
+/tensorflow_vgg/tests/*
+/torch_segformer/tests/*
+/torch_segformer/outputs/*
+/torch_segformer/mlruns/*
 
 /tensorflow_vgg/tests/*
 /tensorflow_vgg/tfdataset/*
 
 *.pth
+*.tif

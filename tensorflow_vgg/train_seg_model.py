@@ -34,7 +34,12 @@ vgg_model.trainable = False
 
 x = vgg_model(inp, training=False)
 
-# trainable segmentation layers
+# trainable decoder layer
+x = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name='segmentation_head')(x)
+outputs = keras.layers.UpSampling2D(size=(32, 32), interpolation='bilinear')(x)
+
+
+
 # #--------------------------------
 # # intermediate sized upscaling model
 # x = vgg_model.output  # (32x32x512)
