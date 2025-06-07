@@ -11,7 +11,21 @@ from PIL.TiffTags import TAGS
 # training data set samples
 mask_train_lst  = glob.glob("./dataset_clouds_from_lwir/training/clouds/*.tif")
 img_train_lst = glob.glob("./dataset_clouds_from_lwir/training/lwir/*.tif")
-# pprint(img_cloud_train_lst[:5])
+pprint(img_train_lst[:5])
+
+
+
+# --------------------------------
+import rasterio
+with rasterio.open(img_train_lst[0]) as src:
+    print("Metadata:", src.meta)
+    print("Tags:", src.tags())
+    print("Band descriptions:", src.descriptions)
+    print("CRS:", src.crs)
+    print("Transform (Geo info):", src.transform)
+# -------------------------------------
+
+
 
 # cloud image 
 img = Image.open(img_train_lst[0])
