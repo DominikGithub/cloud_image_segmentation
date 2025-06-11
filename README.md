@@ -10,7 +10,7 @@ Supervised training of a model to learn the segmentation mask as a target labels
 
 Pairs of IR (single channel) images and binary masks for supervised learning. 
 
-- Image/mask size: 1024x2024x1 
+- Image/mask size: 1024x1024x1 
 - Approx. 1000 samples 
 
 ### Data preprocessing 
@@ -36,7 +36,7 @@ Location: <code>/tensorflow_vgg/</code>
 <img src="./docs/vgg_setup.png" alt="VGG19 setup" width="400"/>
 <img src="./docs/vgg_rslts.png" alt="VGG19 results" width="400"/>
 
-- Flat decoder (single upsampling layer) --> easy to train but overfits
+- Flat (one step) upsampling decoder -> easy to train but overfits
 - Deeper decoder increases training challenge
 
 ### (ViT) Segformer 
