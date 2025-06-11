@@ -36,8 +36,8 @@ Location: <code>/tensorflow_vgg/</code>
 <img src="./docs/vgg_setup.png" alt="VGG19 setup" width="400"/>
 <img src="./docs/vgg_rslts.png" alt="VGG19 results" width="400"/>
 
-- Flat (one step) upsampling decoder -> easy to train but overfits
-- Deeper decoder increases training challenge
+- Flat (one step) upsampling decoder 
+- Deeper decoders designs increase training challenge significantly
 
 ### (ViT) Segformer 
 Location: <code>/pytorch_segformer/</code>
