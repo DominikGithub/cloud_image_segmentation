@@ -1,5 +1,11 @@
 '''
-EDA .TIF image files meta data.
+EDA .TIF image files.
+
+- file format meta data
+- shape/channels
+- sample visualization
+
+TIF meta data field explanation -> https://exiv2.org/tags.html
 '''
 
 import numpy as np
@@ -11,18 +17,19 @@ from PIL.TiffTags import TAGS
 # training data set samples
 mask_train_lst  = glob.glob("./dataset_clouds_from_lwir/training/clouds/*.tif")
 img_train_lst = glob.glob("./dataset_clouds_from_lwir/training/lwir/*.tif")
-# pprint(img_cloud_train_lst[:5])
+pprint(img_train_lst[:5])
 
 # cloud image 
 img = Image.open(img_train_lst[0])
-
 img.show()
-np_img_arr = np.array(img)
-print('image shape: ', np_img_arr.shape)
+# Shape (H x W x C)
+print('Image shape: ', np.array(img).shape)
 
 
+# -------------- TIFF file metadata --------------
+# Satellite image
 meta_dict = {TAGS[key] : img.tag[key] for key in img.tag_v2}
-# pprint(meta_dict)
+pprint(meta_dict)
 '''
 Sample TIF meta data 
 ------------------------------
@@ -42,15 +49,16 @@ Sample TIF meta data
 }   
 '''
 
-# segmentation mask
+# Segmentation mask
 mask_img = Image.open(mask_train_lst[0])
-
 mask_img.show()
-np_mask_arr = np.array(mask_img)
-print('mask shape: ', np_mask_arr.shape)
+# Shape (H x W)
+print('Mask shape: ', np.array(mask_img).shape)
+
+
 
 meta_dict = {TAGS[key] : mask_img.tag[key] for key in mask_img.tag_v2}
-# pprint(meta_dict)
+pprint(meta_dict)
 '''
 Sample TIF meta data
 ---------------------------
@@ -69,18 +77,3 @@ Sample TIF meta data
   )
 }                
 '''
-# TIF meta data field explanation -> https://exiv2.org/tags.html
-
-
-# # visualize sample image
-# '''
-# $ sudo apt-get install libtiff-tools
-# '''
-# print('images: ', len(img_cloud_train_lst))
-# print('masks:  ', len(img_mask_train_lst))
-# im = Image.open(img_cloud_train_lst[0])
-# im.show()
-
-# na = np.array(im)
-# print('mask shape: ', na.shape)
-# print(na)

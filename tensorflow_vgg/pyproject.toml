@@ -1,5 +1,5 @@
 [project]
-name = "ororatech-challenge"
+name = "VGG cloud segmentation transfer learning"
 version = "0.1.0"
 description = ""
 authors = [
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "ororatech_challenge", from = "src"}]
+packages = [{include = "vgg_cloud_segmentation_transfer_learning", from = "src"}]
 
 
 [build-system]

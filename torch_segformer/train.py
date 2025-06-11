@@ -1,5 +1,5 @@
 '''
-Pytorch Segformer model fine tuning for cloud segmentation task.
+Pytorch Segformer model transfer learning for cloud segmentation task.
 
 MlFlow server: 
 $ export MLFLOW_FLASK_SERVER_SECRET_KEY="secret"
@@ -16,7 +16,6 @@ from sklearn.metrics import f1_score
 from transformers import SegformerForSemanticSegmentation, SegformerFeatureExtractor
 from transformers.modeling_outputs import SemanticSegmenterOutput
 from transformers import Trainer, TrainingArguments, EarlyStoppingCallback, TrainerCallback
-from visualization import visualize_dataset_samples
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
@@ -35,7 +34,7 @@ TIME_SEC = int(time.time())
 BATCH_SIZE = 64
 
 
-# hf segformer data preprocessor
+# segformer data preprocessor
 preprocessor = SegformerFeatureExtractor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512", use_fast=False)
 preprocessor.do_resize = False
 preprocessor.do_rescale = False
@@ -48,11 +47,6 @@ test_ds = CloudSegDataloader('test', preprocessor)
 n_steps_per_epoch = len(train_ds)
 print('# batches (train, val, test):', n_steps_per_epoch, len(val_ds), len(test_ds))
 
-# ## plot samples to validate data loading
-# visualize_dataset_samples(val_ds, 2)
-# exit(0)
-
-
 
 # Load base model
 base_model = SegformerForSemanticSegmentation.from_pretrained(
@@ -64,7 +58,7 @@ base_model = SegformerForSemanticSegmentation.from_pretrained(
 for param in base_model.segformer.parameters():
     param.requires_grad = False
 # for param in base_model.decode_head.parameters():
-#     param.requires_grad = False
+#     param.requires_grad = True
 # # print model layer training state
 # for name, param in base_model.named_parameters():
 #     print(f"{name}: requires_grad={param.requires_grad}")

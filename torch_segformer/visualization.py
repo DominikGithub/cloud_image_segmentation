@@ -1,5 +1,9 @@
 '''
-Utils function for visualization.
+Utils functions to create data sample visualization files for eda and documentation.
+
+- Image & mask combined subplots
+- Intensity histrograms
+
 '''
 
 import numpy as np

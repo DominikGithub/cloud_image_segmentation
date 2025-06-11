@@ -10,3 +10,6 @@
 
 *.pth
 *.tif
+
+# keep docs
+!/docs/*.png
