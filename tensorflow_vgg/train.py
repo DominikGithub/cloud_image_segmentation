@@ -65,26 +65,7 @@ outputs = keras.layers.UpSampling2D(size=(32, 32), interpolation='bilinear')(x)
 # #-----------------------------------
 
 
-# intermediate + few skip connections                                     # NOTE not working on val set
-b3 = vgg_model.get_layer("block3_pool").output   # 128×128
-b4 = vgg_model.get_layer("block4_pool").output   # 64×64
-b5 = vgg_model.get_layer("block5_pool").output   # 32×32
-
-x = Conv2D(512, 3, activation="relu", padding="same")(b5)
-x = UpSampling2D()(x)  # → 64×64
-x = Concatenate()([x, b4])
-x = Conv2D(256, 3, activation="relu", padding="same")(x)
-
-x = UpSampling2D()(x)  # → 128×128
-x = Concatenate()([x, b3])
-x = Conv2D(128, 3, activation="relu", padding="same")(x)
-
-x = UpSampling2D(size=(8, 8))(x)  # → 1024×1024
-outputs = Conv2D(1, 1, activation="sigmoid")(x)
-#-----------------------------------
-
-
-# # NOTE deep model -> overfitting
+# # overfitting
 # # skip tensors
 # b1, b2 = vgg_model.get_layer("block1_pool").output, vgg_model.get_layer("block2_pool").output
 # b3, b4 = vgg_model.get_layer("block3_pool").output, vgg_model.get_layer("block4_pool").output
@@ -137,66 +118,6 @@ log_cb = LambdaCallback(
                                                                 'f1_seg_score': logs['f1_seg_score'], 
                                                                 'val_f1_seg_score': logs['val_f1_seg_score']})),
 )
-# class FineTuneCallback(keras.callbacks.Callback):
-#     def __init__(self, base_model, fine_tune_epoch=10, new_lr=1e-5):
-#         super().__init__()
-#         self.base_model = base_model
-#         self.fine_tune_epoch = fine_tune_epoch
-#         self.new_lr = new_lr
-
-#     def on_epoch_begin(self, epoch, logs=None):
-#         if epoch == self.fine_tune_epoch:
-#             print(f"Unfreezing base model for fine-tuning at epoch {epoch}")
-#             self.base_model.trainable = True
-#             # update lr, if fine tuning lr is smaller than last used lr
-#             # if self.new_lr < self.model.optimizer.lr.numpy():
-#             # keras.backend.set_value(self.model.optimizer.lr, self.new_lr)
-#             # Recompile
-#             self.model.compile(
-#                 optimizer=self.model.optimizer,
-#                 loss=self.model.loss,
-#                 metrics=self.model.metrics
-#             )
-# fine_tune_cb = FineTuneCallback(seg_model, fine_tune_epoch=20, new_lr=1e-5)
-
-
-# ## data augmentation
-# def _augment(image, mask):
-#     '''
-#     Training online data augmentation.
-#     '''
-#     # common seed for geo transformations
-#     seed = tf.random.uniform([], maxval=1e6, dtype=tf.float32)
-
-#     # image = tf.image.grayscale_to_rgb(tf.expand_dims(image, -1))
-#     if tf.rank(image) == 2: image = tf.expand_dims(image, -1)
-#     if tf.rank(mask) == 2:  mask = tf.expand_dims(mask, -1)
-
-#     # geom transform on image & mask
-#     image = tf.image.stateless_random_flip_left_right(image, seed=[seed, 0])
-#     mask  = tf.image.stateless_random_flip_left_right(mask,  seed=[seed, 0])
-#     image = tf.image.stateless_random_flip_up_down(image,   seed=[seed, 1])
-#     mask  = tf.image.stateless_random_flip_up_down(mask,    seed=[seed, 1])
-
-#     # pixel base aug on image only
-#     image = tf.image.stateless_random_brightness(image, max_delta=0.1,seed=[seed, 2])
-
-#     # feste Form setzen
-#     image.set_shape([1024, 1024, 3])
-#     mask.set_shape([1024, 1024, 1])
-#     return image, mask
-
-# train_auged_ds = (
-#     train_dataset_tf
-#     .cache('/tmp/cache.tfdata')
-#     .shuffle(200)
-#     .map(_augment, num_parallel_calls=tf.data.AUTOTUNE)
-#     .batch(BATCH_SIZE)
-#     .prefetch(tf.data.AUTOTUNE)
-# )
-
-
-
 try: history_fine = seg_model.fit(train_dataset_tf, 
                                     validation_data=val_dataset_tf, 
                                     callbacks=[es_cb, save_cb, lr_cb, log_cb],  #fine_tune_cb
